@@ -27,6 +27,16 @@ async def test_state_and_manual_control(client):
     assert (await rsp.json())["light"]["state"]["kelvin"] == 2703  # 370 mired
 
 
+async def test_warmth_slider_covers_the_whole_light_range(client):
+    state = await (await client.get("/api/state")).json()
+    low, high = state["light"]["kelvin_range"]
+    assert (high - low) % state["light"]["kelvin_step"] == 0
+
+    for kelvin, mireds in ((high, 250), (low, 454)):  # slider ends clamp to the light's range
+        rsp = await client.post("/api/light", json={"action": "kelvin", "value": kelvin})
+        assert (await rsp.json())["light"]["state"]["mireds"] == mireds
+
+
 async def test_writes_must_be_json(client):
     rsp = await client.post("/api/light", data="action=on")
     assert rsp.status == 415

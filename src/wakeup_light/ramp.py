@@ -16,6 +16,7 @@ from wakeup_light.light import MAX_LEVEL, MIN_LEVEL, LightCaps
 MAX_STEP_S = 30.0
 MIN_STEP_S = 2.0
 MAX_GAP_S = 2.0
+KELVIN_STEP = 50  # warmth slider step in the UI
 
 
 def kelvin_to_mired(kelvin: float) -> int:
@@ -24,6 +25,18 @@ def kelvin_to_mired(kelvin: float) -> int:
 
 def mired_to_kelvin(mireds: float) -> int:
     return round(1_000_000 / mireds)
+
+
+def kelvin_range(caps: LightCaps, step: int = KELVIN_STEP) -> tuple[int, int]:
+    """The light's kelvin range widened to whole steps, for a range slider.
+
+    A slider only accepts min + n*step: with the FLOALT's 2203 K warm end and 50 K
+    steps the top would be 3953 K instead of 4000 K. Values outside the light's
+    range are clamped to it when sent.
+    """
+    low = mired_to_kelvin(caps.max_mireds) // step * step
+    high = -(-mired_to_kelvin(caps.min_mireds) // step) * step
+    return low, high
 
 
 def _clamp01(p: float) -> float:

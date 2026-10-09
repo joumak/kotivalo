@@ -4,7 +4,7 @@ from itertools import pairwise
 import pytest
 
 from wakeup_light.light import LightCaps
-from wakeup_light.ramp import Curve, kelvin_to_mired, plan_ticks, step_seconds
+from wakeup_light.ramp import Curve, kelvin_range, kelvin_to_mired, plan_ticks, step_seconds
 from wakeup_light.settings import RampSettings
 
 START = datetime(2026, 10, 12, 3, 30, tzinfo=UTC)
@@ -41,6 +41,14 @@ def test_from_settings_clamps_to_light_range():
     curve = Curve.from_settings(ramp, LightCaps(min_mireds=250, max_mireds=454))
     assert (curve.warm_mired, curve.cool_mired) == (454, 250)
     assert kelvin_to_mired(2200) == 455 and kelvin_to_mired(4000) == 250
+
+
+def test_kelvin_slider_range_reaches_both_ends_in_whole_steps():
+    # FLOALT: 454..250 mired = 2203..4000 K; 2203 + n*50 would stop at 3953 K.
+    low, high = kelvin_range(LightCaps(min_mireds=250, max_mireds=454))
+    assert (low, high) == (2200, 4000)
+    assert (high - low) % 50 == 0
+    assert kelvin_range(LightCaps(min_mireds=153, max_mireds=500)) == (2000, 6550)
 
 
 def test_step_size():

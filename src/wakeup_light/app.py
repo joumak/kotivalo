@@ -13,7 +13,13 @@ from aiohttp import web
 
 from wakeup_light.clock import Clock, ntp_synchronized
 from wakeup_light.light import FakeLight, LightCaps, LightController, LightError
-from wakeup_light.ramp import Curve, kelvin_to_mired, mired_to_kelvin
+from wakeup_light.ramp import (
+    KELVIN_STEP,
+    Curve,
+    kelvin_range,
+    kelvin_to_mired,
+    mired_to_kelvin,
+)
 from wakeup_light.schedule import occurrences, upcoming
 from wakeup_light.scheduler import AlarmScheduler, prune_skipped
 from wakeup_light.settings import Alarm, RampSettings, SettingsError, Store
@@ -24,6 +30,7 @@ LOGGER = logging.getLogger(__name__)
 EXIT_CONFIG = 78
 RADIO_CHECK_INTERVAL_S = 60
 CLOCK_CHECK_INTERVAL_S = 60
+STOP_TIMEOUT_S = 5
 TEST_HOLD_S = 30
 MAX_TEST_MINUTES = 60
 FAKE_IEEE = "00:00:00:00:00:00:00:01"
@@ -76,7 +83,11 @@ class Service:
         await self.manager.shutdown()
         for task in self._tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        # Bounded: a task that swallows its cancellation must not hang shutdown.
+        if self._tasks:
+            _, pending = await asyncio.wait(self._tasks, timeout=STOP_TIMEOUT_S)
+            for task in pending:
+                LOGGER.warning("Background task did not stop: %r", task)
         if self.zigbee is not None:
             await self.zigbee.shutdown()
 
@@ -103,7 +114,8 @@ class Service:
         while True:
             await asyncio.sleep(RADIO_CHECK_INTERVAL_S)
             try:
-                await asyncio.wait_for(api._at_command("AI"), timeout=5)
+                async with asyncio.timeout(5):
+                    await api._at_command("AI")
                 failures = 0
             except Exception as exc:  # noqa: BLE001
                 failures += 1
@@ -278,10 +290,8 @@ class Service:
                 "ieee": settings.target_ieee,
                 "available": self.controller.available,
                 "caps": asdict(caps),
-                "kelvin_range": [
-                    mired_to_kelvin(caps.max_mireds),
-                    mired_to_kelvin(caps.min_mireds),
-                ],
+                "kelvin_range": kelvin_range(caps),
+                "kelvin_step": KELVIN_STEP,
                 "state": light_state,
                 "error": self.controller.last_error,
             },

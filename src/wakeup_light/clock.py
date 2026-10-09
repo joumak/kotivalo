@@ -53,8 +53,17 @@ async def ntp_synchronized() -> bool | None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )  # fmt: skip
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-    except (OSError, TimeoutError):
+    except OSError:
         return None
+    try:
+        # asyncio.timeout, not wait_for: on Python 3.11 wait_for can swallow a
+        # cancellation that arrives as the call finishes, leaving the caller running.
+        async with asyncio.timeout(5):
+            out, _ = await proc.communicate()
+    except TimeoutError:
+        return None
+    finally:
+        if proc.returncode is None:
+            proc.kill()
     value = out.decode().strip()
     return {"yes": True, "no": False}.get(value)

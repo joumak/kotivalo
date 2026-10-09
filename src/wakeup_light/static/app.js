@@ -162,6 +162,7 @@ function renderLight(s) {
   $("ct-wrap").hidden = !l.caps.supports_ct;
   const k = $("kelvin");
   [k.min, k.max] = l.kelvin_range;
+  k.step = l.kelvin_step;
   if (!busy.has("kelvin") && st.kelvin) k.value = st.kelvin;
   $("kelvin-out").textContent = `${k.value} K`;
   $("light-error").hidden = !l.error;

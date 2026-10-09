@@ -3,11 +3,11 @@
 # then install and restart the systemd service.
 #   deploy/deploy.sh               full deploy
 #   deploy/deploy.sh --no-service  install the code only (CLI use; service untouched)
-# Env: PI_HOST (default pi@raspberrypi.local), SKIP_TESTS=1 skips ruff and pytest.
+# Env: PI_HOST (default pi@wakeup-light.local), SKIP_TESTS=1 skips ruff and pytest.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PI_HOST=${PI_HOST:-pi@raspberrypi.local}
+PI_HOST=${PI_HOST:-pi@wakeup-light.local}
 REMOTE_DIR=/home/pi/wakeup-light
 service=1
 [[ "${1:-}" == "--no-service" ]] && service=0

@@ -15,7 +15,7 @@ control the light from a phone-friendly web page on the Pi.
 - [zigpy](https://github.com/zigpy/zigpy) and [zigpy-xbee](https://github.com/zigpy/zigpy-xbee), the radio stack Home Assistant's ZHA uses. zigbee2mqtt does not support XBee radios.
 - aiohttp for the web UI.
 
-Web UI: `http://<pi-address>:8080` (currently `http://192.168.1.174:8080`).
+Web UI: `http://wakeup-light.local:8080`, or by IP (currently `http://192.168.1.174:8080`) on phones that do not resolve `.local` names.
 
 ## How the sunrise works
 
@@ -70,7 +70,7 @@ deploy/deploy.sh               # ruff + pytest, rsync, pip install on the Pi, re
 deploy/deploy.sh --no-service  # code only (for CLI work with the service stopped)
 ```
 
-Logs: `ssh pi@raspberrypi.local journalctl -fu wakeup-light`. The journal is kept in RAM, so logs don't survive a reboot. The UI footer shows the result of the last alarm.
+Logs: `ssh pi@wakeup-light.local journalctl -fu wakeup-light`. The journal is kept in RAM, so logs don't survive a reboot. The UI footer shows the result of the last alarm.
 
 ## Setting up a Pi from scratch
 
@@ -82,6 +82,7 @@ Logs: `ssh pi@raspberrypi.local journalctl -fu wakeup-light`. The journal is kep
    ```
 
    It does the following:
+   - renames the Pi to `wakeup-light` (or `NEW_HOSTNAME`), so it becomes `wakeup-light.local`, and stops cloud-init from resetting the name
    - apt full-upgrade
    - turns Wi-Fi power saving off
    - keeps the journal in RAM

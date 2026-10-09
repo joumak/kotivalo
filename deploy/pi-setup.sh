@@ -1,11 +1,26 @@
 #!/usr/bin/env bash
-# One-time, idempotent system setup for the wakeup-light Pi. Runs as root:
+# One-time, idempotent system setup for the wakeup-light Pi. Runs as root; on a fresh Pi:
 #   ssh pi@raspberrypi.local 'sudo bash -s' < deploy/pi-setup.sh
+# Afterwards the Pi is pi@wakeup-light.local (choose another name with NEW_HOSTNAME=...).
 # Ends with a reboot unless run with REBOOT=0 ('sudo REBOOT=0 bash -s').
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt_opts=(-y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+NEW_HOSTNAME=${NEW_HOSTNAME:-wakeup-light}
+
+echo "== Hostname $NEW_HOSTNAME (reachable as $NEW_HOSTNAME.local via avahi/mDNS)"
+if [[ -d /etc/cloud/cloud.cfg.d ]]; then
+  # Pi OS runs cloud-init on every boot; without this it may reset the hostname.
+  echo "preserve_hostname: true" > /etc/cloud/cloud.cfg.d/99-preserve-hostname.cfg
+fi
+hostnamectl set-hostname "$NEW_HOSTNAME"
+if grep -q "^127\.0\.1\.1" /etc/hosts; then
+  sed -i "s/^127\.0\.1\.1\s.*/127.0.1.1\t\t$NEW_HOSTNAME/" /etc/hosts
+else
+  printf '127.0.1.1\t\t%s\n' "$NEW_HOSTNAME" >> /etc/hosts
+fi
+systemctl try-restart avahi-daemon
 
 echo "== Packages"
 apt-get update -q

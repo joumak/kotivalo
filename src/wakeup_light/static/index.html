@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14110f">
+  <title>Wakeup light</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Wakeup light</h1>
+    <div class="chips">
+      <span id="chip-clock" class="chip">clock</span>
+      <span id="chip-light" class="chip">light</span>
+    </div>
+  </header>
+
+  <p id="error" class="banner error" hidden></p>
+  <p id="clock-warning" class="banner warn" hidden>
+    The clock is not synced to the internet. Alarms use the Pi's own clock until it is.
+  </p>
+
+  <section id="sunrise" class="card glow" hidden>
+    <div class="row between">
+      <h2 id="sunrise-title">Sunrise</h2>
+      <button id="sunrise-stop" class="danger">Stop</button>
+    </div>
+    <div class="progress"><div id="sunrise-bar"></div></div>
+    <p id="sunrise-detail" class="muted"></p>
+  </section>
+
+  <section class="card">
+    <h2>Next alarm</h2>
+    <div id="next-none" class="muted">No alarms set. Turn on a day below.</div>
+    <div id="next" hidden>
+      <div class="row between">
+        <div>
+          <div id="next-label" class="big"></div>
+          <div id="next-in" class="muted"></div>
+        </div>
+        <button id="next-skip"></button>
+      </div>
+      <ul id="later" class="later"></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row between">
+      <h2>Light</h2>
+      <button id="refresh" class="ghost" title="Read the light's actual state">Refresh</button>
+    </div>
+    <p id="no-light" class="muted" hidden>No light selected yet. Pair one under Devices.</p>
+    <div id="light-controls">
+      <div class="row gap">
+        <button id="on" class="wide">On</button>
+        <button id="off" class="wide">Off</button>
+      </div>
+      <label class="slider">
+        <span>Brightness <output id="level-out"></output></span>
+        <input id="level" type="range" min="2" max="254" step="1">
+      </label>
+      <label class="slider" id="ct-wrap">
+        <span>Warmth <output id="kelvin-out"></output></span>
+        <input id="kelvin" type="range" min="2200" max="4000" step="50" class="warmth">
+      </label>
+      <p id="light-error" class="muted error-text" hidden></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Alarms</h2>
+    <div id="alarms" class="alarms"></div>
+  </section>
+
+  <section class="card">
+    <h2>Sunrise</h2>
+    <form id="ramp-form" class="grid">
+      <label>Fade-in <select name="duration_min">
+        <option value="10">10 min</option><option value="15">15 min</option>
+        <option value="20">20 min</option><option value="30">30 min</option>
+        <option value="45">45 min</option><option value="60">60 min</option>
+      </select></label>
+      <label>Switch off <select name="hold_min">
+        <option value="0">never</option><option value="15">after 15 min</option>
+        <option value="30">after 30 min</option><option value="60">after 1 h</option>
+        <option value="90">after 1.5 h</option><option value="120">after 2 h</option>
+      </select></label>
+      <label>Start warmth <input name="warm_kelvin" type="number" min="1500" max="6500" step="100"> K</label>
+      <label>End warmth <input name="cool_kelvin" type="number" min="1500" max="6500" step="100"> K</label>
+      <label class="span">Curve <input name="gamma" type="range" min="1" max="4" step="0.1">
+        <small class="row between muted"><span>even</span><span>dim for longer</span></small>
+      </label>
+      <button type="submit" id="ramp-save" class="span" disabled>Save</button>
+    </form>
+    <div class="row gap test">
+      <span class="muted">Try it:</span>
+      <button data-test="2" class="ghost">2 min</button>
+      <button data-test="5" class="ghost">5 min</button>
+      <button data-test="30" class="ghost">30 min</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row between">
+      <h2>Devices</h2>
+      <button id="pair" class="ghost">Pair</button>
+    </div>
+    <p id="pair-help" class="muted" hidden>
+      Pairing is open. Reset the IKEA light: with it on, switch it off and on 6 times
+      (about 1 s each) and leave it on.
+    </p>
+    <ul id="devices" class="devices"></ul>
+    <p id="last-event" class="muted"></p>
+  </section>
+
+  <footer id="footer" class="muted"></footer>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

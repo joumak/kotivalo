@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wakeup-light"
+version = "0.1.0"
+description = "Sunrise alarm for an IKEA Zigbee light, driven by zigpy on a Raspberry Pi"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "zigpy==2.3.0",
+    "zigpy-xbee==0.22.0",
+    "aiohttp>=3.10",
+]
+
+[project.optional-dependencies]
+# Fallback radios: only the radio settings change, the app code stays the same.
+ezsp = ["bellows==1.1.0"]
+znp = ["zigpy-znp==1.1.1"]
+dev = ["pytest", "pytest-asyncio", "pytest-aiohttp", "ruff"]
+
+[project.scripts]
+wakeup-light = "wakeup_light.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wakeup_light"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

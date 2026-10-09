@@ -1,0 +1,9 @@
+.venv/
+.git/
+.idea/
+*.iml
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+var/

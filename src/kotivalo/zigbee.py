@@ -18,7 +18,7 @@ import zigpy.device
 import zigpy.exceptions
 import zigpy.types
 from zigpy.zcl import foundation
-from zigpy.zcl.clusters.general import LevelControl, OnOff, StartUpOnOff
+from zigpy.zcl.clusters.general import Basic, LevelControl, OnOff, StartUpOnOff
 from zigpy.zcl.clusters.lighting import Color, ColorCapabilities
 from zigpy.zcl.helpers import ReportingConfig
 from zigpy.zdo import types as zdo_types
@@ -276,7 +276,23 @@ async def configure_remote(device: zigpy.device.Device) -> bool:
     ]
     if battery:
         await _configure(device, battery[:1], REMOTE_REPORTING, SLEEPY_TIMEOUT_S)
+    await _log_firmware(device, endpoint)
     return on_off_bound
+
+
+async def _log_firmware(device, endpoint) -> None:
+    """IKEA's E1743 and E1810 bind only to groups before firmware 2.3.075: worth knowing
+    when a remote's presses never arrive."""
+    basic = getattr(endpoint, "in_clusters", {}).get(Basic.cluster_id)
+    if basic is None:
+        return
+    try:
+        async with asyncio.timeout(SLEEPY_TIMEOUT_S):
+            ok, _ = await basic.read_attributes(["sw_build_id"], allow_cache=False)
+    except (zigpy.exceptions.ZigbeeException, TimeoutError) as exc:
+        LOGGER.info("Reading the firmware of %s failed: %r", device.ieee, exc)
+        return
+    LOGGER.info("Device %s %s firmware %s", device.ieee, device.model, ok.get("sw_build_id"))
 
 
 async def _configure(device, clusters, reporting: dict, timeout_s: float) -> bool:

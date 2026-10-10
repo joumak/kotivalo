@@ -98,21 +98,17 @@ A Sonoff ZBDongle-E (EZSP) or ZBDongle-P (ZNP) would bring:
 
 The code talks to zigpy's generic API, so swapping is a settings change plus re-pairing (see the README).
 
-### 5. Flash-free switch-on
+### 5. Flash-free switch-on: not possible on this firmware
 
 **Today:**
 - Before the wake-up lamp switches off, it is parked at warm and minimum brightness. That shows as a brief dim-down.
 - "On" sets the remembered brightness, then the warmth 0.5 s later. That shows as a brief warm moment.
 
-**Tested on the FLOALT (firmware 1.2.217), with the lamp off:**
-- Colour temperature can be set and is stored.
-- Brightness can't be set, with or without ExecuteIfOff.
+**Tested on panel 2 (firmware 1.2.217) on 2026-10-10, with the lamp off:**
+- **Brightness** can't be preset, with or without ExecuteIfOff.
+- **Colour temperature** is stored, but by eye the lamp still comes on at its previous warmth, then shifts to the stored one. That's the same as today.
 
-**If an eye-check confirms the lamp lights at the stored warmth:**
-- Send the warmth *before* "on" and before a sunrise or night-light start, which removes the warm moment.
-- Park other lamps' warmth *after* they are off, so the shift isn't visible.
-
-The brightness parking of the wake-up lamp has to stay, unless newer FLOALT firmware supports ExecuteIfOff (the OTA risk applies to lamps, see CLAUDE.md).
+So the current parking is as good as it gets. The only open route is newer FLOALT firmware, if it supports ExecuteIfOff. A lamp OTA is risky over the XStick, and lamps must never update automatically (see CLAUDE.md).
 
 ### 6. Weather ideas
 

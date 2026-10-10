@@ -1,135 +1,112 @@
 # Roadmap
 
-**Status (2026-10-10):**
-- **Done:** v0.1, a sunrise alarm for one IKEA FLOALT panel with a phone UI.
-- **Verified on the hardware:** a test sunrise with no lost commands, resume after a restart, manual override, and reboot.
+**Status (2026-10-10):** general lighting control for the home. Everything below is verified on the hardware:
+- **Lamps:** several, with live state from reports and polling.
+- **Wake-up light:** the sunrise.
+- **Motion lighting:** with the VALLHORN.
+- **Remotes:** through the Pi (the STYRBAR).
+- **UI:** a React UI for phones and a wall panel, in Finnish and English.
 
-**Next:** grow from a single wakeup light into general Zigbee lighting control for the home:
-- several IKEA lights and remotes
-- lights organised into groups
-- the sunrise becomes one automation among others
+Done, in order:
+
+| Phase | What | Commit |
+|---|---|---|
+| 0 | rename to kotivalo | `d16fdc9` |
+| 1 | several lamps, settings v2 | `ce6692e` |
+| 2 | React UI | `a0f0bf2` |
+| 3 | lamp reports and polling | `16e3994` |
+| 4 | owner model, motion lighting | `ff7da08`, `b2fe5d8` |
+| 5 | remotes and remote firmware updates | `f15ed72`, `f1ff0c8` |
+| 6 | docs | |
 
 ---
 
-## Known issues (fix first)
+## Known issues
 
-### 1. ~~Service hangs if no Zigbee router is powered at startup~~ (fixed 2026-10-10)
+### 1. The 5-button remote (E1810) doesn't work yet
 
-**What happened:** after a reboot the service printed a traceback but never exited, so systemd never restarted it.
+**The cause:** it has firmware 2.3.014, which sends presses only to a Zigbee group, and the XStick drops group frames. Its binding to the Pi is accepted but ignored.
 
-**Causes:**
-- zigpy's startup `permit(0)` broadcast fails with `BROADCAST_RELAY_FAILURE` when no router is powered to relay it.
-- After the failure, zigpy closes the radio but not its database. The database thread kept the process alive.
+**What happened:** an over-the-air update to 24.4.5 (IKEA image type 0x11C1, 207 KB) was tried. The remote kept dropping off the network mid-setup, probably because of a weak battery.
 
-**Fixes:**
-- `TolerantPermit` (in `zigbee.py`) logs the unrelayed broadcast and still opens the coordinator.
-- `start_app()` closes the database on any startup failure.
-- `serve()` turns every startup error into an exit code.
-- The unit is `Type=notify` with a 60 s watchdog, as a backstop for any future hang.
+**Next:** fit a fresh battery, then press **Päivitä laiteohjelmisto** in its settings. The same applies to an E1743 on/off switch on old firmware.
 
-**Verified:**
-- with real zigpy, both on the laptop and on the Pi: the old code hangs, the new code exits
-- by `tests/test_startup.py`
+### 2. Every frame arrives four times
 
-### 2. The UI shows the last *commanded* state
+Each remote frame reaches the Pi four times within ~40 ms. This is probably MAC-level retries, because the sender doesn't hear the XStick's acknowledgement. `remotes.Decoder` de-duplicates them, and lamp reports are idempotent.
 
-Changes made with the wall switch or an IKEA remote are invisible to the UI. This becomes a real problem with remotes and groups (see feature 2).
+**Effect:** extra airtime only. Check whether lamp reports are also quadrupled; a better radio would probably end it (see feature 4).
 
-### 3. Laptop Python differs from the Pi
+### 3. The XStick slows down when a sleeping device has queued requests
 
-The laptop uses 3.11.0rc1, the Pi 3.13. This gap already hid one bug (`wait_for`). Use `uv` with Python 3.13 for the dev venv.
+Requests to a sleepy device wait at its parent until it wakes, and the XBee seems to stall meanwhile. Once a radio check answered 3 s late. zigpy-xbee then logged `InvalidStateError` from `_handle_at_response`: it sets a result on an already timed-out future. That's harmless, but noisy.
+
+**Mitigation:** setup retries are limited to one every 5 minutes per device.
+
+### 4. Laptop Python differs from the Pi
+
+The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Python 3.13 when the folder is renamed to `~/my/kotivalo`.
+
+### Fixed
+
+- **The service hung at startup with no Zigbee router powered.** `TolerantPermit`, the database close on failure, and the systemd watchdog fixed it (`9263e24`).
+- **The UI showed only the last commanded state.** Lamps now report on/off, level and warmth; polling and Device_annce catch the rest.
+- **The wake-up lamp flashed at the next start.** It is now parked at warm and minimum level before switching off, and "on" restores the last manual setting.
 
 ---
 
 ## Features
 
-### 1. Many lights, organised into groups
+### 1. Lamps organised into groups
 
-**Goal:** control every IKEA light in the home. The living room has three lamps, each with several individually controlled spotlights, so a single lamp is already a group.
+**Goal:** the living room has three lamps, each with several individually controlled spots. A fixture should act as one lamp.
 
-**Proposed model:**
-```
-Room ("Living room")
-  └─ Group / fixture ("Floor lamp", "Ceiling spots", ...)
-       └─ Light (one Zigbee device/endpoint; IEEE + user-given name)
-```
-- **Devices:** give every paired device a name and a room. The data lives in `settings.json`, or a separate `devices.json` if it grows.
-- **Native Zigbee groups:** use Zigbee groups (`ep.add_to_group(group_id)`, `app.groups`, and the group endpoint for commands). One multicast command switches every spot at the same moment, with no "popcorn" effect, and with less radio traffic.
-  - **Risk:** zigpy-xbee's group sending is barely exercised. It has the comment `tx_opts |= 0x08  # where did this come from?`. Test on the XStick early, with two bulbs.
-  - **Fallback:** app-level groups that send one unicast per light.
-- **The `Light` protocol gets a group implementation.** The sunrise, UI and automations then target "a light or a group" the same way.
-- **Group capabilities:** take the intersection of the members' (CT support, mired range). A group with a non-CT bulb gets brightness only.
-- **Capacity:** every mains-powered IKEA bulb is a Zigbee router and strengthens the mesh. The XStick itself has weak radio power, so the network will lean on the bulbs.
+**Proposed model:** room → group/fixture → lamp. The `Light` protocol gets a group implementation, so the sunrise, UI, motion rules and remotes target "a lamp or a group" the same way.
 
-**Open questions:**
-- How many bulbs, and which models?
-- Must each spot be controllable alone, or only per lamp?
+- **Native Zigbee groups:** one multicast command switches every spot at the same moment, with no "popcorn" effect and less radio traffic.
+  - **Risk:** zigpy-xbee's group sending is barely exercised (`tx_opts |= 0x08  # where did this come from?`). Test on the XStick early.
+  - **Fallback:** app-level groups that send one unicast per lamp.
+- **Group capabilities:** the intersection of the members' (CT support, mired range).
+- **Open question:** must each spot be controllable alone, or only per fixture?
 
-### 2. IKEA remotes and controllers
+### 2. More remote polish
 
-**Two ways to wire them:**
-- **Bind the remote straight to a Zigbee group.** It works without the Pi and responds instantly, but behaviour is fixed (on/off/dim).
-- **Bind the remote to the coordinator and handle its commands in the app.** This is flexible: scenes, "remote press cancels the sunrise", long-press actions.
-- **Hybrid:** bind to the group for basic control, and also to the coordinator so the app sees presses.
-
-**Things to know:**
-- **Remotes are battery-powered sleepy end devices.** Pair them near a bulb so they choose a bulb, not the XStick, as parent; the EM250 has few child slots. Their commands arrive as zigpy `cluster_command` events on the remote's output clusters.
-- **Light state must follow reality.** Configure attribute reporting (`on_off`, `current_level`, `color_temperature`) and bind it to the coordinator. If IKEA reporting proves unreliable, poll a light after a remote press.
-
-**Open question:** which remote models (STYRBAR, RODRET, TRÅDFRI on/off, 5-button...)?
+- A button legend per model in the remote's settings, and its firmware version on the row.
+- Long-press actions: for example STYRBAR's arrow hold for scenes, or "all off".
+- Pair and check RODRET and the E1743/E1812 when the user has them at hand.
 
 ### 3. Automations
 
-- Turn the wakeup sunrise into one automation type, with target, schedule and ramp. Each room or group can then have its own.
-- Ideas:
+- Turn the sunrise into one automation type (target, schedule, ramp), so each room or group can have its own.
+- **Ideas:**
   - evening dimming
-  - lights on at sunset (the `astral` library gives Helsinki sun times)
+  - lights on at sunset (`astral` gives Helsinki sun times)
   - "all off" when leaving
   - scenes (saved level and CT per group)
-- Generalise the current scheduler, and keep its strengths:
-  - wall-clock and UTC handling for DST
-  - resume after restart
-  - manual action cancels the running automation
+- **Keep the scheduler's strengths:**
+  - DST-safe UTC windows
+  - resume after a restart
+  - manual action wins
 
-### 4. UI: immediate effect while dragging
+### 4. A better radio
 
-Today brightness and warmth are sent only when the slider is released.
+A Sonoff ZBDongle-E (EZSP) or ZBDongle-P (ZNP) would bring:
+- group traffic, so old-firmware remotes would work
+- more child slots
+- probably no quadruple frames
 
-**Plan:**
-- **Browser:** send `input` events throttled to about every 150–250 ms.
-- **Server:** keep a "latest value wins" queue per target. While a command is in flight, only the newest pending value is kept, so slow radio replies never pile up.
-- **Commands:** send brightness with a short transition (0.2–0.3 s) for smoothness. A new command simply replaces the running transition, which IKEA allows.
-- **During a drag:**
-  - send CT with no transition, as always
-  - throttle CT more than brightness
-  - never send CT and brightness at the same moment
-- **Groups:** use multicast, which waits for no reply, so dragging stays fast.
-- **Navigation:** add a room/group page now that there will be more than one light.
+The code talks to zigpy's generic API, so swapping is a settings change plus re-pairing (see the README).
 
-### 5. Flash-free morning start ("arm for wakeup")
+### 5. HTTPS on the LAN and an installable app
 
-**Problem:** IKEA lights come back on at the brightness and CT they had when switched off. Sometimes this is only for a moment before the first command lands. So if the lamp was used bright and cool in the evening, the sunrise starts with a flash. Today:
-- Off from the UI or the auto-off parks CT at warm, but leaves the brightness.
-- Off with the wall switch or a remote parks nothing.
-
-**Options, cheapest first:**
-1. **Park the brightness too.** On every app-initiated off: CT warm → wait → level 2 → off. It's visible as a brief dim-down. The catch: the next manual switch-on starts very dim.
-2. **"ExecuteIfOff".** Set the Level Control and Color Control `options` attribute so level and CT commands apply while the light is off, then re-arm silently at any time (for example an hour before the alarm). It's unknown whether the FLOALT's firmware supports this.
-   - **Test:** read `sw_build_id`, write the options, send `move_to_level` while off, then read `current_level` back.
-3. **Update the FLOALT firmware.** zigpy has an IKEA OTA provider (`ikea`). Newer firmware may support option 2. Over the XBee link an update could take hours, and it carries risk. Try one bulb first.
-4. **An explicit "Arm for wakeup" button,** or an evening automation, running option 1 or 2 when the light isn't in use.
-
-**Decide after testing option 2 on the panel.**
-
-### 6. ~~Naming~~ (done 2026-10-10)
-
-Renamed to **kotivalo**: repo, package and command, service, state directory and hostname.
+- A local CA (mkcert) would enable the Wake Lock API, so the wall panel's screen stays on without kiosk apps.
+- It would also make the UI installable as an app (PWA).
 
 ---
 
 ## Hardening (later)
 
-- **Back up the Zigbee network.** Keep a copy of `zigbee.db` (it holds zigpy's network backups, including the network key) and `settings.json` off the Pi. Otherwise a dead SD card means re-pairing every light and remote.
-- **Read-only root filesystem (overlay FS):** protects the SD card from power cuts once the setup is stable.
+- **Back up the Zigbee network.** Keep a copy of `zigbee.db` (it holds the network key) and `settings.json` off the Pi. Otherwise a dead SD card means re-pairing every device.
+- **Read-only root filesystem (overlay FS):** protects the SD card from power cuts.
 - **Optional web token** (`web_token` in `settings.json`): enable it if the LAN isn't trusted.
-- **Health page:** radio status, last-seen time per device, and the result of the last automation.
+- **Health page:** radio status, last-seen time per device, the last automation's result.

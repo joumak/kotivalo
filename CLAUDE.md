@@ -8,7 +8,15 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 - **Radio:** Digi XStick2 ZB (XBee S2, EM250, ZB Coordinator API firmware 21A7) at `/dev/serial/by-id/usb-Digi_XStick-if00-port0`.
   - Settings: AP=2, 57600 baud. Zigbee channel 25 (Wi-Fi is on channel 6).
   - Uses zigpy 2.3.0 + zigpy-xbee 0.22.0. zigbee2mqtt does not support XBee.
-- **Light:** IKEA "FLOALT panel WS 60x60" (`50:32:5f:ff:fe:6e:e5:2c`), 250–454 mired.
+- **Devices** (the user's home; restore their state after tests):
+
+  | Device | IEEE | Role |
+  |---|---|---|
+  | FLOALT panel WS 60x60 (250–454 mired) | `50:32:5f:ff:fe:6e:e5:2c` | panel 1, a normal lamp |
+  | FLOALT panel WS 60x60 | `d0:cf:5e:ff:fe:1f:a3:9e` | panel 2, the wake-up lamp; the VALLHORN switches it |
+  | VALLHORN motion sensor | `8c:65:a3:ff:fe:3d:d1:6d` | dark_lux 30, off after 5 min (the user's settings) |
+  | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | controls panel 1 |
+  | TRÅDFRI 5-button remote (E1810) | `84:2e:14:ff:fe:41:64:b9` | firmware 2.3.014: group-only, so not working yet; its update failed (weak battery?) |
 - **Service:** systemd unit `kotivalo`, web UI on port 8080.
 - **State:** `/var/lib/kotivalo` (`settings.json`, `state.json`, `zigbee.db`).
 - **Laptop:** dev venv uses Python **3.11.0rc1**, which is not the Pi's 3.13. Code must work on both.
@@ -17,7 +25,8 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 
 ```sh
 .venv/bin/pytest -q && .venv/bin/ruff check . && .venv/bin/ruff format --check .
-.venv/bin/kotivalo --state-dir var serve --fake --fake-lamps 6 --port 8080   # in-memory lamps
+.venv/bin/kotivalo --state-dir var serve --fake --fake-lamps 6 --port 8080   # in-memory devices
+#   also --fake-sensors N, --fake-remotes N; POST /api/fake/event {type: motion|lux|battery|button, ieee, value}
 cd web && npm run dev            # UI with hot reload, /api proxied to :8080 (KOTIVALO_API=... for the Pi)
 cd web && npm run lint && npm test && npm run e2e   # oxlint, Vitest, Playwright (needs a build)
 cd web && npm run screenshots -- <out-dir>          # every layout + panel day/night (needs serve on :8099)
@@ -32,6 +41,9 @@ CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `
 **Radio (XBee):**
 - **Never form or re-form the network automatically** (`auto_form` is off for xbee). Every write wears the EM250's flash, and a new network means re-pairing every device.
 - Use `xbee-config` only for the one-time AP/baud change, which issues a single `WR`.
+- **zigpy's OTA stays disabled** (`"ota": {"enabled": False}` in `zigpy_config`): lamps must never update themselves. Firmware updates run only on request, for remotes (`find_firmware`/`update_firmware` in `zigbee.py`).
+- **Bindings are unicast to the coordinator.** The XStick drops group-addressed frames, so a device that only sends to groups (E1743/E1810 before firmware 2.3.075) is never heard.
+- **Sleepy devices (sensors, remotes) answer only while awake:** right after joining, a button press or motion. Configure them then (`_configure_soon`), with 30 s timeouts. A failed setup is retried at most every 5 min: queued requests to a sleeping device slow the XStick down.
 
 **IKEA lights** (verified on the FLOALT):
 - **Minimum level is 2.** Level 1 switches it off.
@@ -61,14 +73,20 @@ Everything else:
   - the `Light` protocol
   - `FakeLight`, for tests and `--fake`
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
+- **`behaviour.py`:** the pure owner model (off / manual / motion / sunrise per lamp): motion rules, manual wins, manual off pauses motion until the room has been empty, "let motion control it" (`automatic`), the night window, timers (`tick`, `next_deadline`). Returns actions (`SwitchOn`, `SwitchOff`); `Service._run_actions` performs them. Saved in `state.json`.
+- **`remotes.py`:** pure decoder from remote ZCL frames to actions (on, off, toggle, brighter/dimmer, *_hold, dim_stop, warmer/cooler, arrow_stop). De-duplicates by sequence number (every frame arrives ~4 times through the XStick) and drops STYRBAR's stray "on" after an arrow. `Service._remote_pressed` maps actions to the remote's lamps.
 - **`settings.py`:** versioned `settings.json` (v2: devices, lights, wakeup, night, motion, remotes). A v1 file is migrated on load and kept as `settings.v1.json`. `serve --fake` devices (`FAKE_PREFIX`) are never saved.
 - **`registry.py`:** devices reported by the radio (`Discovered`) and one `LightController` per lamp. Radio-agnostic.
 - **`zigbee.py`:** the only module that touches zigpy for light control (`classify`/`discover` turn zigpy devices into `Discovered`).
   - `EventBridge` turns zigpy callbacks into `events.py` domain events on `Service.events`. It is attached before the radio starts (the `start_app(on_created=...)` hook). Every callback is wrapped in try/except: zigpy's `emit()` lets exceptions escape into packet handling.
-  - `configure_lamp` binds on/off, level and colour to the coordinator (unicast: the XStick drops group frames) and configures reporting. Verified on the FLOALT: reports arrive.
+  - `configure_lamp` binds on/off, level and colour to the coordinator and configures reporting. Verified on the FLOALT: reports arrive.
+  - `configure_sensor` (VALLHORN: occupancy, illuminance, battery; its OnOff output deliberately unbound) and `configure_remote` (OnOff, Level and Scenes outputs bound with raw ZDO `Bind_req`, since STYRBAR's descriptor lacks Scenes although its arrows use it) set up battery devices.
+  - `EventBridge.handle_message` sees every frame before zigpy's cluster matching: it emits `Seen`, `Announce` (Device_annce: a lamp got mains power back) and `Button`.
 - **Lamp state** is what we commanded, corrected by reports (`LightController.apply_report`, ignored for 5 s after our own command: the echo guard) and by polling (every 60 s, backing off to 10 min while a lamp doesn't answer; unreachable is not off). `xbee_config.py` uses raw serial frames, stdlib only.
 - **`app.py` (`Service`)** wires everything together. `web.py` is a thin JSON API.
   - Per-lamp level/warmth go through `LatestWins` (`light.py`), so a dragged slider never queues behind the radio.
+  - "On" (UI or remote) restores the lamp's last manual level and warmth (`_manual_on`): the wake-up lamp is parked at minimum level when switched off. During a sunrise "on" means full brightness.
+  - Remote hold-to-dim uses the lamp's native `move`/`stop`, then reads the level back; arrows step 40 mired, repeating while held.
   - `GET /api/events` (SSE) pushes the full state on every change: call `service.notify()` after anything that changes state (web writes do it in the `guard` middleware).
 - **`web/`:** the React UI (TypeScript, Vite, Tailwind v4, shadcn/ui on Radix), built into `src/kotivalo/static/` (gitignored; `deploy.sh` builds it).
   - `api/`: REST client, `live.tsx` (one SSE `EventSource` feeding every view), `actions.ts` (calls plus error toasts).

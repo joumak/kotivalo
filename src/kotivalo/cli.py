@@ -121,24 +121,29 @@ def cmd_devices(args, store: Store) -> None:
 
 
 async def _devices(store: Store) -> None:
-    from kotivalo.zigbee import devices, radio_lock, start_app
+    from kotivalo.registry import Registry
+    from kotivalo.zigbee import discover, radio_lock, start_app
 
     settings = store.load_settings()
     with radio_lock(store.lock_path):
         app = await start_app(settings.radio, store.db_path, start_radio=False)
         try:
-            found = devices(app)
+            found = discover(app)
         finally:
             await app.shutdown()
+    if Registry(settings, lambda ieee, endpoint: None).sync(found):
+        store.save_settings(settings)
     if not found:
         print("No devices paired.")
     for d in found:
-        mark = "*" if d["ieee"] == settings.target_ieee else " "
-        seen = datetime.fromtimestamp(d["last_seen"]).strftime("%F %T") if d["last_seen"] else "-"
+        mark = "*" if d.ieee == settings.wakeup.light else " "
+        seen = datetime.fromtimestamp(d.last_seen).strftime("%F %T") if d.last_seen else "-"
+        name = settings.devices[d.ieee].name
         print(
-            f"{mark} {d['ieee']}  {d['nwk']}  {d['manufacturer']} / {d['model']}  "
-            f"light={d['is_light']} initialized={d['initialized']} last_seen={seen}"
+            f"{mark} {d.ieee}  {d.nwk}  {d.kind:<6} {name!r}  {d.manufacturer} / {d.model}  "
+            f"initialized={d.initialized} last_seen={seen}"
         )
+    print("(* = wake-up lamp)")
 
 
 def cmd_pair(args, store: Store) -> None:
@@ -146,9 +151,18 @@ def cmd_pair(args, store: Store) -> None:
 
 
 async def _pair(args, store: Store) -> None:
-    from kotivalo.zigbee import DeviceEvents, ZigbeeLight, light_endpoint, radio_lock, start_app
+    from kotivalo.registry import Registry
+    from kotivalo.zigbee import (
+        DeviceEvents,
+        ZigbeeLight,
+        discovered,
+        light_endpoint,
+        radio_lock,
+        start_app,
+    )
 
     settings = store.load_settings()
+    registry = Registry(settings, lambda ieee, endpoint: None)
     lights = []
     lost = asyncio.Event()
 
@@ -159,6 +173,8 @@ async def _pair(args, store: Store) -> None:
                 lost.set()
             return
         say(f"{kind}: {obj.ieee} nwk=0x{obj.nwk:04X} {obj.manufacturer} / {obj.model}")
+        if kind in ("joined", "initialized"):
+            registry.sync([discovered(obj)])
         if kind == "initialized" and light_endpoint(obj) is not None:
             lights.append((time.monotonic(), obj))
 
@@ -168,7 +184,7 @@ async def _pair(args, store: Store) -> None:
         try:
             await app.permit(time_s=args.seconds)
             say(
-                f"Pairing open for {args.seconds} s. Reset the FLOALT now: with it ON, "
+                f"Pairing open for {args.seconds} s. Reset the lamp now: with it ON, "
                 "switch it off and on 6 times (about 1 s each) and leave it on."
             )
             deadline = time.monotonic() + args.seconds
@@ -183,18 +199,21 @@ async def _pair(args, store: Store) -> None:
             await app.permit(time_s=0)
 
             for _, device in lights:
+                ieee = str(device.ieee)
                 if device.ieee not in app.devices:
-                    say(f"{device.ieee} left again: the network did not keep it.")
+                    say(f"{ieee} left again: the network did not keep it.")
                     continue
-                light = ZigbeeLight(app, str(device.ieee))
+                light = ZigbeeLight(app, ieee)
                 caps = await light.read_caps()
-                await light.restore_after_power_loss()
-                say(f"Light {device.ieee}: {caps}")
-                if settings.target_ieee in (None, str(device.ieee)) or args.select:
-                    settings.target_ieee = str(device.ieee)
-                    settings.caps = caps
-                    store.save_settings(settings)
-                    say("Selected as the alarm light.")
+                registry.set_caps(ieee, caps)
+                if settings.wakeup.light is None or args.select:
+                    settings.wakeup.light = ieee
+                    say("Selected as the wake-up lamp.")
+                wakeup = settings.wakeup.light == ieee
+                settings.light_settings(ieee).power_on = "previous" if wakeup else "on"
+                await light.set_power_on(previous=wakeup)
+                say(f"Lamp {ieee}: {caps}")
+            store.save_settings(settings)
         finally:
             await app.shutdown()
 
@@ -208,13 +227,14 @@ async def _light(args, store: Store) -> None:
     from kotivalo.zigbee import ZigbeeLight, radio_lock, start_app
 
     settings = store.load_settings()
-    ieee = args.ieee or settings.target_ieee
+    ieee = args.ieee or settings.wakeup.light
     if not ieee:
-        sys.exit("No light selected: run 'kotivalo pair' first, or pass --ieee")
+        sys.exit("No wake-up lamp chosen: run 'kotivalo pair' first, or pass --ieee")
     with radio_lock(store.lock_path):
         app = await start_app(settings.radio, store.db_path)
         try:
-            light = ZigbeeLight(app, ieee)
+            device = settings.devices.get(ieee)
+            light = ZigbeeLight(app, ieee, device.endpoint if device else None)
             match args.action:
                 case "on":
                     await light.on()
@@ -274,17 +294,17 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("pair", help="open the network for joining and set up the new light")
     p.add_argument("--seconds", type=int, default=254, choices=range(1, 255), metavar="1-254")
     p.add_argument("--watch", type=int, default=120, help="seconds to watch a new light")
-    p.add_argument("--select", action="store_true", help="make the new light the alarm light")
+    p.add_argument("--select", action="store_true", help="make the new lamp the wake-up lamp")
     p.set_defaults(func=cmd_pair)
 
-    p = sub.add_parser("devices", help="list paired devices (* = alarm light)")
+    p = sub.add_parser("devices", help="list paired devices (* = wake-up lamp)")
     p.set_defaults(func=cmd_devices)
 
     p = sub.add_parser("light", help="control the light directly (service must be stopped)")
     p.add_argument("action", choices=["on", "off", "level", "ct", "state", "caps"])
     p.add_argument("value", type=int, nargs="?", help="level 2-254, or ct in kelvin")
     p.add_argument("--transition", type=float, default=0, help="seconds (level only)")
-    p.add_argument("--ieee", help="device to control instead of the selected light")
+    p.add_argument("--ieee", help="lamp to control instead of the wake-up lamp")
     p.set_defaults(func=cmd_light)
 
     args = parser.parse_args(argv)

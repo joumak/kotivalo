@@ -58,8 +58,13 @@ Everything else:
   - the `Light` protocol
   - `FakeLight`, for tests and `--fake`
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
-- **`zigbee.py`:** the only module that touches zigpy for light control. `xbee_config.py` uses raw serial frames, stdlib only.
+- **`settings.py`:** versioned `settings.json` (v2: devices, lights, wakeup, night, motion, remotes). A v1 file is migrated on load and kept as `settings.v1.json`. `serve --fake` devices (`FAKE_PREFIX`) are never saved.
+- **`registry.py`:** devices reported by the radio (`Discovered`) and one `LightController` per lamp. Radio-agnostic.
+- **`zigbee.py`:** the only module that touches zigpy for light control (`classify`/`discover` turn zigpy devices into `Discovered`). `xbee_config.py` uses raw serial frames, stdlib only.
 - **`app.py` (`Service`)** wires everything together. `web.py` is a thin JSON API.
+  - Per-lamp level/warmth go through `LatestWins` (`light.py`), so a dragged slider never queues behind the radio.
+  - `GET /api/events` (SSE) pushes the full state on every change: call `service.notify()` after anything that changes state (web writes do it in the `guard` middleware).
+  - v1 endpoints (`/api/light`, `/api/alarms`, ...) act on the wake-up lamp. They are kept until the new UI replaces `static/` (plan phase 2).
 - **`static/`:** plain HTML/JS/CSS, no build step. Write requests must be JSON, which acts as the CSRF guard.
 
 ## Testing and verification

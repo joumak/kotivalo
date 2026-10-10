@@ -1,3 +1,6 @@
+import asyncio
+import json
+
 import pytest
 
 from kotivalo.app import Service
@@ -51,7 +54,7 @@ async def test_invalid_alarm_is_rejected_and_valid_one_saved(client):
     state = await (await client.put("/api/alarms", json={"alarms": good})).json()
     assert state["alarms"][0] == {"enabled": True, "time": "06:30"}
     assert state["upcoming"][0]["label"] == "Mon 06:30"
-    assert client.service.store.load_settings().alarms[0].time == "06:30"
+    assert client.service.store.load_settings().wakeup.alarms[0].time == "06:30"
 
 
 async def test_manual_action_stops_a_running_sunrise(client):
@@ -70,3 +73,103 @@ async def test_token_protects_the_api(client):
     rsp = await client.get("/api/state", headers={"X-Token": "secret"})
     assert rsp.status == 200
     assert (await client.get("/")).status == 200  # the page itself stays public
+
+
+# --- version 2 -------------------------------------------------------------------------
+
+LAMP_1 = "00:00:00:00:00:00:00:01"  # the fake lamps of `serve --fake`
+LAMP_2 = "00:00:00:00:00:00:00:02"
+
+
+async def test_lists_every_lamp_with_its_role(client):
+    state = await (await client.get("/api/state")).json()
+    lamps = {lamp["ieee"]: lamp for lamp in state["lights"]}
+    assert set(lamps) == {LAMP_1, LAMP_2}
+    assert lamps[LAMP_1]["wakeup"] and not lamps[LAMP_2]["wakeup"]
+    assert lamps[LAMP_2]["caps"]["supports_ct"]
+    assert state["wakeup"]["light"] == LAMP_1
+    assert {d["ieee"] for d in state["devices"]} == {LAMP_1, LAMP_2}
+
+
+async def test_per_lamp_actions_touch_only_that_lamp(client):
+    rsp = await client.post(f"/api/lights/{LAMP_2}", json={"action": "level", "value": 100})
+    lamps = {lamp["ieee"]: lamp for lamp in (await rsp.json())["lights"]}
+    assert lamps[LAMP_2]["state"]["level"] == 100
+    assert lamps[LAMP_1]["state"]["on"] is not True
+
+    rsp = await client.post(f"/api/lights/{LAMP_2}", json={"action": "toggle"})
+    lamps = {lamp["ieee"]: lamp for lamp in (await rsp.json())["lights"]}
+    assert lamps[LAMP_2]["state"]["on"] is False
+
+    rsp = await client.post("/api/lights/nope", json={"action": "on"})
+    assert rsp.status == 502
+
+
+async def test_a_dragged_slider_sends_only_what_the_lamp_can_keep_up_with(client):
+    light = client.service.registry.controller(LAMP_2).light
+    values = list(range(10, 200, 10))
+    await asyncio.gather(
+        *(
+            client.post(f"/api/lights/{LAMP_2}", json={"action": "level", "value": v})
+            for v in values
+        )
+    )
+    sent = [c[1] for c in light.commands() if c[0] == "level"]
+    assert sent[-1] == values[-1]
+    assert len(sent) <= len(values)
+
+
+async def test_changing_the_wakeup_lamp_stops_its_running_sunrise(client):
+    await client.post("/api/sunrise/test", json={"minutes": 2})
+    state = await (await client.put("/api/wakeup", json={"light": LAMP_2})).json()
+    assert state["sunrise"] is None
+    assert state["wakeup"]["light"] == LAMP_2
+    assert client.service.controller is client.service.registry.controller(LAMP_2)
+    assert ("stop",) in client.service.registry.controller(LAMP_1).light.commands()
+
+
+async def test_rename_and_remove_devices(client):
+    rsp = await client.put(f"/api/devices/{LAMP_2}", json={"name": "Olohuone", "room": "Koti"})
+    lamp = next(x for x in (await rsp.json())["lights"] if x["ieee"] == LAMP_2)
+    assert (lamp["name"], lamp["room"]) == ("Olohuone", "Koti")
+    assert (await client.put(f"/api/devices/{LAMP_2}", json={"name": " "})).status == 400
+
+    state = await (await client.delete(f"/api/devices/{LAMP_1}")).json()
+    assert [x["ieee"] for x in state["lights"]] == [LAMP_2]
+    assert state["wakeup"]["light"] is None
+    assert (await client.post("/api/light", json={"action": "on"})).status == 502
+
+
+async def test_night_window(client):
+    state = await (await client.put("/api/night", json={"start": "22:30", "end": "06:00"})).json()
+    assert state["night"] == {"start": "22:30", "end": "06:00"}
+    assert (await client.put("/api/night", json={"start": "24:00", "end": "06:00"})).status == 400
+    assert client.service.settings.night.start == "22:30"
+
+
+async def read_event(rsp) -> dict:
+    while True:
+        line = await asyncio.wait_for(rsp.content.readline(), 2)
+        if line.startswith(b"data: "):
+            return json.loads(line[6:])
+
+
+async def test_live_updates_arrive_over_server_sent_events(client):
+    rsp = await client.get("/api/events")
+    assert rsp.headers["Content-Type"].startswith("text/event-stream")
+    first = await read_event(rsp)
+    assert first["lights"]
+
+    await client.post(f"/api/lights/{LAMP_2}", json={"action": "level", "value": 77})
+    update = await read_event(rsp)
+    lamp = next(x for x in update["lights"] if x["ieee"] == LAMP_2)
+    assert lamp["state"]["level"] == 77
+    rsp.close()
+
+
+async def test_event_stream_takes_the_token_as_a_query_parameter(client):
+    client.service.settings.web_token = "secret"
+    assert (await client.get("/api/events")).status == 401
+    rsp = await client.get("/api/events?token=secret")
+    assert rsp.status == 200
+    rsp.close()

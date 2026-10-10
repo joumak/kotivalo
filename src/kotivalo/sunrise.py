@@ -26,6 +26,7 @@ class Run:
     end: datetime  # full brightness (the alarm time)
     off: datetime | None  # auto-off, None = leave on
     key: str | None = None  # alarm occurrence key
+    light: str | None = None  # IEEE of the lamp
     phase: str = "starting"  # ramp, hold, done
     failures: int = 0
 
@@ -33,6 +34,7 @@ class Run:
         return {
             "kind": self.kind,
             "key": self.key,
+            "light": self.light,
             "phase": self.phase,
             "start": self.start.isoformat(),
             "end": self.end.isoformat(),

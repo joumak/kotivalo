@@ -20,6 +20,7 @@ from zigpy.zcl.clusters.general import LevelControl, OnOff, StartUpOnOff
 from zigpy.zcl.clusters.lighting import Color, ColorCapabilities
 
 from kotivalo.light import LightCaps, LightError, LightState
+from kotivalo.registry import Discovered
 from kotivalo.settings import RadioSettings
 
 LOGGER = logging.getLogger(__name__)
@@ -141,20 +142,38 @@ def light_endpoint(device: zigpy.device.Device):
     return None
 
 
-def describe(device: zigpy.device.Device) -> dict[str, Any]:
-    return {
-        "ieee": str(device.ieee),
-        "nwk": f"0x{device.nwk:04X}",
-        "manufacturer": device.manufacturer,
-        "model": device.model,
-        "initialized": device.is_initialized,
-        "is_light": light_endpoint(device) is not None,
-        "last_seen": device.last_seen,
-    }
+OCCUPANCY_CLUSTER = 0x0406
 
 
-def devices(app: zigpy.application.ControllerApplication) -> list[dict[str, Any]]:
-    return [describe(d) for d in app.devices.values() if not is_coordinator(d)]
+def classify(device: zigpy.device.Device) -> tuple[str, int | None]:
+    """(kind, light endpoint id): light, motion sensor, remote, or other."""
+    ep = light_endpoint(device)
+    if ep is not None:
+        return "light", ep.endpoint_id
+    endpoints = [e for i, e in device.endpoints.items() if i != 0]
+    if any(OCCUPANCY_CLUSTER in getattr(e, "in_clusters", {}) for e in endpoints):
+        return "motion", None
+    if any(OnOff.cluster_id in getattr(e, "out_clusters", {}) for e in endpoints):
+        return "remote", None
+    return "other", None
+
+
+def discovered(device: zigpy.device.Device) -> Discovered:
+    kind, endpoint = classify(device)
+    return Discovered(
+        ieee=str(device.ieee),
+        kind=kind,
+        model=device.model,
+        manufacturer=device.manufacturer,
+        endpoint=endpoint,
+        nwk=f"0x{device.nwk:04X}",
+        last_seen=device.last_seen,
+        initialized=device.is_initialized,
+    )
+
+
+def discover(app: zigpy.application.ControllerApplication) -> list[Discovered]:
+    return [discovered(d) for d in app.devices.values() if not is_coordinator(d)]
 
 
 class DeviceEvents:
@@ -182,15 +201,20 @@ class DeviceEvents:
 class ZigbeeLight:
     """The Light protocol over zigpy ZCL commands."""
 
-    def __init__(self, app: zigpy.application.ControllerApplication, ieee: str):
+    def __init__(
+        self, app: zigpy.application.ControllerApplication, ieee: str, endpoint: int | None = None
+    ):
         self.app = app
         self.ieee = zigpy.types.EUI64.convert(ieee)
+        self.endpoint_id = endpoint
 
     def _endpoint(self):
         try:
             device = self.app.get_device(ieee=self.ieee)
         except KeyError:
             raise LightError(f"Device {self.ieee} is not paired") from None
+        if self.endpoint_id is not None and self.endpoint_id in device.endpoints:
+            return device.endpoints[self.endpoint_id]
         ep = light_endpoint(device)
         if ep is None:
             raise LightError(f"Device {self.ieee} has no dimmable light endpoint")
@@ -260,14 +284,14 @@ class ZigbeeLight:
 
         return await self._send("read capabilities", read)
 
-    async def restore_after_power_loss(self) -> None:
-        """Best effort: after a power cut, come back as before instead of full on."""
+    async def set_power_on(self, previous: bool) -> None:
+        """What the lamp does when mains power returns: its previous state (a power cut
+        at night keeps it off) or on (the wall switch works). Best effort."""
+        value = StartUpOnOff.PreviousValue if previous else StartUpOnOff.On
         try:
             await self._send(
                 "write start_up_on_off",
-                lambda ep: ep.on_off.write_attributes(
-                    {"start_up_on_off": StartUpOnOff.PreviousValue}
-                ),
+                lambda ep: ep.on_off.write_attributes({"start_up_on_off": value}),
             )
         except LightError as exc:
             LOGGER.info("Light does not accept start_up_on_off: %s", exc)

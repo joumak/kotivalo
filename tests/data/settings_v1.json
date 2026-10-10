@@ -1,0 +1,56 @@
+{
+  "timezone": "Europe/Helsinki",
+  "alarms": [
+    {
+      "enabled": false,
+      "time": "07:00"
+    },
+    {
+      "enabled": false,
+      "time": "07:00"
+    },
+    {
+      "enabled": false,
+      "time": "07:00"
+    },
+    {
+      "enabled": false,
+      "time": "07:00"
+    },
+    {
+      "enabled": false,
+      "time": "07:00"
+    },
+    {
+      "enabled": false,
+      "time": "08:00"
+    },
+    {
+      "enabled": false,
+      "time": "08:00"
+    }
+  ],
+  "ramp": {
+    "duration_min": 30,
+    "gamma": 2.5,
+    "warm_kelvin": 2200,
+    "cool_kelvin": 4000,
+    "hold_min": 60
+  },
+  "radio": {
+    "type": "xbee",
+    "path": "/dev/serial/by-id/usb-Digi_XStick-if00-port0",
+    "baudrate": 57600,
+    "flow_control": null,
+    "channel": 25
+  },
+  "target_ieee": "50:32:5f:ff:fe:6e:e5:2c",
+  "caps": {
+    "model": "FLOALT panel WS 60x60",
+    "manufacturer": "IKEA of Sweden",
+    "supports_ct": true,
+    "min_mireds": 250,
+    "max_mireds": 454
+  },
+  "web_token": null
+}

@@ -171,3 +171,42 @@ class LightController:
         state = await light.read_state()
         self.state = state
         return state
+
+
+class LatestWins:
+    """Sends the newest value per kind ("level", "kelvin") to one lamp.
+
+    While a command is in flight, newer values replace any pending one, so a
+    dragged slider never builds a queue behind the slow radio. Each submit()
+    returns once its value, or a newer one of the same kind, has been sent.
+    """
+
+    def __init__(self, send):
+        self._send = send  # async (kind, value) -> None
+        self._pending: dict[str, tuple[object, list[asyncio.Future]]] = {}
+        self._worker: asyncio.Task | None = None
+
+    async def submit(self, kind: str, value) -> None:
+        future = asyncio.get_running_loop().create_future()
+        waiters = self._pending.get(kind, (None, []))[1]
+        self._pending[kind] = (value, [*waiters, future])
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._run())
+        await future
+
+    async def _run(self) -> None:
+        while self._pending:
+            kind = next(iter(self._pending))
+            value, waiters = self._pending.pop(kind)
+            error = None
+            try:
+                await self._send(kind, value)
+            except Exception as exc:  # noqa: BLE001 - handed to every waiter
+                error = exc
+            for waiter in waiters:
+                if waiter.done():
+                    continue  # the HTTP request went away
+                if error is None:
+                    waiter.set_result(None)
+                else:
+                    waiter.set_exception(error)

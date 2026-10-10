@@ -42,11 +42,13 @@ class AlarmScheduler:
         clock: Clock,
         settings: Callable[[], Settings],
         state: Callable[[], State],
+        on_start: Callable[[Run], None] | None = None,
     ):
         self.manager = manager
         self.clock = clock
         self.settings = settings
         self.state = state
+        self.on_start = on_start
         self._wakeup = asyncio.Event()
 
     def poke(self) -> None:
@@ -57,17 +59,28 @@ class AlarmScheduler:
         """Start the sunrise for the active alarm window if it is not running yet."""
         if self.manager.active is not None:
             return None  # an alarm or test sunrise is already running
-        now = self.clock.now()
         settings, state = self.settings(), self.state()
-        occs = occurrences(now, settings.alarms, settings.ramp, settings.tz)
+        if settings.wakeup.light is None or not self.manager.controller.available:
+            return None  # no wake-up lamp chosen
+        now = self.clock.now()
+        occs = occurrences(now, settings.wakeup.alarms, settings.wakeup.ramp, settings.tz)
         occ = active_occurrence(now, occs, skipped=state.skipped)
         if occ is None or occ.key == finished_key(state):
             return None
-        run = Run(kind="alarm", start=occ.start, end=occ.alarm, off=occ.off, key=occ.key)
+        run = Run(
+            kind="alarm",
+            start=occ.start,
+            end=occ.alarm,
+            off=occ.off,
+            key=occ.key,
+            light=settings.wakeup.light,
+        )
         late = now > occ.start + timedelta(seconds=CHECK_INTERVAL_S * 2)
         verb = "resuming" if late else "starting"
         LOGGER.info("Alarm %s: %s sunrise", occ.label(settings.tz), verb)
         self.manager.start(run)
+        if self.on_start is not None:
+            self.on_start(run)
         return run
 
     async def run_forever(self) -> None:

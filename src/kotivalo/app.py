@@ -91,7 +91,9 @@ def poll_delay(failures: int) -> float:
     return float(min(POLL_MAX_S, POLL_INTERVAL_S * 2**failures))
 
 
-def fake_devices(lamps: int, sensors: int = 0, remotes: int = 0) -> list[Discovered]:
+def fake_devices(
+    lamps: int, sensors: int = 0, remotes: int = 0, dimmers: int = 0
+) -> list[Discovered]:
     return [
         *(
             Discovered(f"{FAKE_PREFIX}{i:02x}", "light", "Fake panel", "Test", 1)
@@ -105,6 +107,10 @@ def fake_devices(lamps: int, sensors: int = 0, remotes: int = 0) -> list[Discove
             Discovered(f"{FAKE_PREFIX}e{i}", "remote", "Remote Control N2", "Test")
             for i in range(1, remotes + 1)
         ),
+        *(  # a 2-gang dimmer: two lamps on one device
+            Discovered(f"{FAKE_PREFIX}d{i}", "light", "Fake dimmer", "Test", 1, endpoints=(1, 2))
+            for i in range(1, dimmers + 1)
+        ),
     ]
 
 
@@ -117,6 +123,7 @@ class Service:
         fake_lamps: int = 2,
         fake_sensors: int = 0,
         fake_remotes: int = 0,
+        fake_dimmers: int = 0,
         clock: Clock | None = None,
     ):
         self.store = store
@@ -124,6 +131,7 @@ class Service:
         self.fake_lamps = fake_lamps
         self.fake_sensors = fake_sensors
         self.fake_remotes = fake_remotes
+        self.fake_dimmers = fake_dimmers
         self.clock = clock or Clock()
         self.settings = store.load_settings()
         self.state = store.load_state()
@@ -182,18 +190,20 @@ class Service:
     def curve(self) -> Curve:
         return Curve.from_settings(self.settings.wakeup.ramp, self.controller.caps)
 
-    def _make_light(self, ieee: str, endpoint: int | None):
+    def _make_light(self, lamp: str, endpoint: int | None):
         if self.fake:
-            return self._fake_lights.setdefault(ieee, FakeLight(clock=self.clock))
+            return self._fake_lights.setdefault(lamp, FakeLight(clock=self.clock))
         if self.zigbee is None:
             return None
         from kotivalo.zigbee import ZigbeeLight
 
-        return ZigbeeLight(self.zigbee, ieee, endpoint)
+        return ZigbeeLight(self.zigbee, self.registry.device_of(lamp), endpoint)
 
     async def start(self) -> None:
         if self.fake:
-            found = fake_devices(self.fake_lamps, self.fake_sensors, self.fake_remotes)
+            found = fake_devices(
+                self.fake_lamps, self.fake_sensors, self.fake_remotes, self.fake_dimmers
+            )
         else:
             from kotivalo.zigbee import DeviceEvents, EventBridge, discover, start_app
 
@@ -362,7 +372,8 @@ class Service:
             # A re-paired lamp already in the database is not re-interviewed: set it up
             # again on "joined" too.
             if ieee in self.registry.controllers and (kind == "initialized" or known_lamp):
-                self._spawn_logged(self._setup_lamp(ieee), f"Setting up lamp {ieee}")
+                for lamp in [ieee, *self.registry.channels(ieee)]:
+                    self._spawn_logged(self._setup_lamp(lamp), f"Setting up lamp {lamp}")
             elif self._sleepy(ieee):
                 self.settings.devices[ieee].configured = False  # a (re)joined sensor or remote
                 self._configure_soon(ieee)  # it is awake right now
@@ -399,7 +410,9 @@ class Service:
         if self.zigbee is None:
             return
         try:
-            device = self.zigbee.get_device(ieee=zigpy.types.EUI64.convert(ieee))
+            device = self.zigbee.get_device(
+                ieee=zigpy.types.EUI64.convert(self.registry.device_of(ieee))
+            )
         except KeyError:
             return
         if await configure_lamp(device, self.settings.devices[ieee].endpoint):
@@ -462,7 +475,8 @@ class Service:
             case Announce() if controller is not None:
                 # Typically a lamp that just got mains power back (a wall switch).
                 LOGGER.info("Lamp %s announced itself; reading its state", event.ieee)
-                self._spawn_logged(self._refresh_soon(event.ieee), f"Refreshing {event.ieee}")
+                for lamp in [event.ieee, *self.registry.channels(event.ieee)]:
+                    self._spawn_logged(self._refresh_soon(lamp), f"Refreshing {lamp}")
             case Motion(occupied=occupied):
                 night = self._night(now)
                 actions = self.behaviour.motion(event.ieee, occupied, now, night)
@@ -1341,6 +1355,7 @@ class Service:
     async def remove_device(self, ieee: str) -> None:
         if ieee not in self.settings.devices:
             raise SettingsError(f"Unknown device {ieee}")
+        ieee = self.registry.device_of(ieee)  # a channel goes with its whole device
         if ieee == self.settings.wakeup.light:
             await self.stop_sunrise("lamp removed")
         is_fixture = self.settings.devices[ieee].kind == "fixture"
@@ -1442,7 +1457,11 @@ class Service:
     def device_list(self) -> list[dict]:
         result = []
         for ieee, device in self.settings.devices.items():
-            found = self.registry.discovered.get(ieee)
+            found = self.registry.discovered.get(self.registry.device_of(ieee))
+            channels = self.registry.channels(device.parent or ieee)
+            channel = None
+            if channels:  # numbered 1.. in the order the device lists them
+                channel = [device.parent or ieee, *channels].index(ieee) + 1
             result.append(
                 {
                     "ieee": ieee,
@@ -1459,6 +1478,8 @@ class Service:
                     "wakeup": ieee == self.settings.wakeup.light,
                     "members": list(device.members),
                     "fixture": self.registry.fixture_of(ieee),
+                    "parent": device.parent,
+                    "channel": channel,
                 }
             )
         return result
@@ -1516,6 +1537,7 @@ async def serve(
     fake_lamps: int = 2,
     fake_sensors: int = 0,
     fake_remotes: int = 0,
+    fake_dimmers: int = 0,
 ) -> int:
     """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
     systemd can restart us: a process that hangs after an error never gets restarted."""
@@ -1528,6 +1550,7 @@ async def serve(
         fake_lamps=fake_lamps,
         fake_sensors=fake_sensors,
         fake_remotes=fake_remotes,
+        fake_dimmers=fake_dimmers,
     )
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

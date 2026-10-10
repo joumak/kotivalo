@@ -81,6 +81,11 @@ Everything else:
   - **Lamp lists:** `Registry.lamp_ids()` (fixtures, and bulbs in none) is what users see. Use it, or `is_lamp`, for anything user-facing; `controllers` (bulbs) is for radio work: polling, configuring, reports.
   - **State:** a bulb's report or poll goes through `_lamp_seen`, which updates its fixture (`Registry.update_fixture`: `combined_state`, `common_caps`).
   - **Membership:** `Service.update_fixture` moves a bulb's roles to its fixture when it joins.
+- **Multi-channel devices** (a 2-gang dimmer): every light endpoint is a lamp.
+  - **IDs:** the first is the device's own id; the others are `channel_id(ieee, ep)` = `"<ieee>-<ep>"`, a `Device` with `parent`. Lamp ids appear in URL paths, so they must be URL-safe: no "/".
+  - **Finding the radio device:** `Registry.device_of(lamp)` gives the Zigbee device for radio work.
+  - **Reports:** `EventBridge` maps `(ieee, endpoint)` to the lamp id.
+  - **Pairing and power return:** a join or announce sets up, or refreshes, every channel.
 - **Hand only** (`LampMemo.hand_only`; `lamp_action(ieee, "hand_only", 1|0)`):
   - `Behaviour.motion` and `tick` skip the lamp.
   - `automatic()` and `sunrise_started()` clear it.

@@ -236,6 +236,7 @@ export const en = {
     removeTitle: (name: string) => `Remove ${name}?`,
     removeBody: 'It leaves the Zigbee network. To use it again, pair it again.',
     removeFixtureBody: 'Its bulbs become lamps of their own again.',
+    channel: (n: number) => `Channel ${n}`,
     useForWakeup: 'Use for wake-up',
     seen: (relative: string) => `Seen ${relative}`,
     notSeen: 'Not paired',

@@ -229,6 +229,7 @@ export const fi: Messages = {
     removeTitle: (name) => `Poistetaanko ${name}?`,
     removeBody: 'Laite poistuu Zigbee-verkosta. Jotta voit käyttää sitä taas, liitä se uudelleen.',
     removeFixtureBody: 'Sen lamput palaavat omiksi valoikseen.',
+    channel: (n) => `Kanava ${n}`,
     useForWakeup: 'Käytä herätykseen',
     seen: (relative) => `Nähty ${relative}`,
     notSeen: 'Ei liitetty',

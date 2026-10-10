@@ -28,7 +28,7 @@ from kotivalo.events import Announce, Battery, Button, Event, LightReport, Lux, 
 from kotivalo.light import LightCaps, LightError, LightState
 from kotivalo.registry import Discovered
 from kotivalo.remotes import BUTTON_CLUSTERS, Decoder
-from kotivalo.settings import RadioSettings
+from kotivalo.settings import RadioSettings, channel_id
 
 LOGGER = logging.getLogger(__name__)
 
@@ -147,15 +147,20 @@ def is_coordinator(device: zigpy.device.Device) -> bool:
     return device.nwk == 0x0000
 
 
-def light_endpoint(device: zigpy.device.Device):
-    """The first endpoint that has both On/Off and Level Control server clusters."""
-    for ep_id, ep in device.endpoints.items():
-        if ep_id == 0:
-            continue
+def light_endpoints(device: zigpy.device.Device) -> list:
+    """Endpoints with both On/Off and Level Control server clusters: one per channel."""
+    found = []
+    for ep_id, ep in sorted(device.endpoints.items()):
         clusters = getattr(ep, "in_clusters", {})
-        if OnOff.cluster_id in clusters and LevelControl.cluster_id in clusters:
-            return ep
-    return None
+        if ep_id != 0 and OnOff.cluster_id in clusters and LevelControl.cluster_id in clusters:
+            found.append(ep)
+    return found
+
+
+def light_endpoint(device: zigpy.device.Device):
+    """The first light endpoint: the device itself as a lamp."""
+    endpoints = light_endpoints(device)
+    return endpoints[0] if endpoints else None
 
 
 OCCUPANCY_CLUSTER = 0x0406
@@ -187,6 +192,7 @@ def discovered(device: zigpy.device.Device) -> Discovered:
         nwk=f"0x{device.nwk:04X}",
         last_seen=device.last_seen,
         initialized=device.is_initialized,
+        endpoints=tuple(ep.endpoint_id for ep in light_endpoints(device)),
     )
 
 
@@ -409,6 +415,7 @@ class EventBridge:
         self.queue = queue
         self._attached: set[int] = set()
         self._buttons = Decoder()
+        self._lamps: dict[tuple[str, int], str] = {}  # (ieee, endpoint) -> lamp id
 
     def attach(self, device: zigpy.device.Device) -> None:
         kind, _ = classify(device)
@@ -416,7 +423,11 @@ class EventBridge:
         wanted = wanted.get(kind, {})
         endpoints = [e for i, e in device.endpoints.items() if i != 0]
         if kind == "light":
-            endpoints = [light_endpoint(device)]
+            endpoints = light_endpoints(device)
+            ieee = str(device.ieee)
+            for i, ep in enumerate(endpoints):  # the first channel is the device itself
+                lamp = ieee if i == 0 else channel_id(ieee, ep.endpoint_id)
+                self._lamps[(ieee, ep.endpoint_id)] = lamp
         for ep in endpoints:
             for cluster_id in wanted:
                 cluster = getattr(ep, "in_clusters", {}).get(cluster_id)
@@ -439,7 +450,8 @@ class EventBridge:
         try:
             ieee, name, value = str(event.device_ieee), event.attribute_name, event.value
             if name in ("on_off", "current_level", "color_temperature"):
-                self._put(LightReport(ieee, name, value))
+                lamp = self._lamps.get((ieee, event.endpoint_id), ieee)
+                self._put(LightReport(lamp, name, value))
             elif name == "occupancy":
                 self._put(Motion(ieee, bool(int(value) & 1)))
             elif name == "measured_value" and event.cluster_id == ILLUMINANCE_CLUSTER:

@@ -48,6 +48,12 @@ def default_name(model: str | None, ieee: str) -> str:
     return f"{PRODUCT_NAMES.get(model or '', model) or 'Device'} {ieee.replace(':', '')[-4:]}"
 
 
+def channel_id(ieee: str, endpoint: int) -> str:
+    """The lamp id of a multi-channel device's other channels; the first is the device.
+    URL-safe: lamp ids are part of the web API's paths."""
+    return f"{ieee}-{endpoint}"
+
+
 def is_fake(ieee: str | None) -> bool:
     return bool(ieee) and ieee.startswith(FAKE_PREFIX)
 
@@ -119,6 +125,7 @@ class Device:
     endpoint: int | None = None  # the light endpoint, for lamps
     configured: bool = False  # bindings and reporting set up (later phases)
     members: list[str] = field(default_factory=list)  # a fixture's bulbs (kind "fixture")
+    parent: str | None = None  # a second (third...) channel of a multi-channel device
 
 
 @dataclass
@@ -222,6 +229,8 @@ class Settings:
                 raise SettingsError(f"{ieee}: unknown device kind {device.kind!r}")
             if device.kind != "fixture" and device.members:
                 raise SettingsError(f"{ieee}: only a fixture has bulbs")
+            if device.parent is not None and device.parent not in self.devices:
+                raise SettingsError(f"{ieee}: its device {device.parent} is unknown")
             for member in device.members:
                 if self.devices.get(member) is None or self.devices[member].kind != "light":
                     raise SettingsError(f"{device.name}: {member} is not a lamp")

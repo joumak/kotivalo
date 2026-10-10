@@ -122,14 +122,17 @@ export function DevicesPage() {
   )
 }
 
-/** Lamps for the device list: each fixture followed by its bulbs, then the other bulbs. */
+/** Lamps for the device list: each fixture followed by its bulbs, then the other lamps,
+ * a multi-channel device's channels together. */
 function lampsWithFixtures(devices: DeviceInfo[]): DeviceInfo[] {
   const byName = (a: DeviceInfo, b: DeviceInfo) => a.name.localeCompare(b.name)
   const fixtures = devices.filter((d) => d.kind === 'fixture').sort(byName)
-  const single = devices.filter((d) => d.kind === 'light' && !d.fixture).sort(byName)
+  const single = devices.filter((d) => d.kind === 'light' && !d.fixture && !d.parent).sort(byName)
+  const channels = (device: DeviceInfo) =>
+    devices.filter((d) => d.parent === device.ieee && !d.fixture).sort((a, b) => (a.channel ?? 0) - (b.channel ?? 0))
   return [
     ...fixtures.flatMap((f) => [f, ...devices.filter((d) => d.fixture === f.ieee).sort(byName)]),
-    ...single,
+    ...single.flatMap((d) => [d, ...channels(d)]),
   ]
 }
 
@@ -258,7 +261,12 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
         ]
       : device.kind === 'fixture'
         ? [t.fixture.count(device.members.length), device.wakeup ? t.lamp.wakeupLamp : null]
-        : [fixtureName ? t.fixture.partOf(fixtureName) : null, device.wakeup ? t.lamp.wakeupLamp : null, seen]
+        : [
+            device.channel ? t.devices.channel(device.channel) : null,
+            fixtureName ? t.fixture.partOf(fixtureName) : null,
+            device.wakeup ? t.lamp.wakeupLamp : null,
+            device.parent ? null : seen,
+          ]
   // What to do next, on a line of its own.
   const firmware = remote?.firmware
   const hint = firmware
@@ -273,7 +281,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
           ? t.remote.noLamps
           : null
   return (
-    <li className={cn('flex items-center gap-4 px-4 py-3', device.fixture && 'pl-10')}>
+    <li className={cn('flex items-center gap-4 px-4 py-3', (device.fixture || device.parent) && 'pl-10')}>
       <Icon
         className={cn(
           'size-5 shrink-0',
@@ -333,9 +341,11 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
         <Button size="icon" variant="ghost" aria-label={t.devices.rename} title={t.devices.rename} onClick={onRename}>
           <Pencil />
         </Button>
-        <Button size="icon" variant="ghost" aria-label={t.devices.remove} title={t.devices.remove} onClick={onRemove}>
-          <Trash2 />
-        </Button>
+        {!device.parent && ( // a channel goes with its device
+          <Button size="icon" variant="ghost" aria-label={t.devices.remove} title={t.devices.remove} onClick={onRemove}>
+            <Trash2 />
+          </Button>
+        )}
       </div>
     </li>
   )

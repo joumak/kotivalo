@@ -25,7 +25,7 @@ from kotivalo.light import (
     combined_state,
     common_caps,
 )
-from kotivalo.settings import Device, LightSettings, Settings, default_name
+from kotivalo.settings import Device, LightSettings, Settings, channel_id, default_name
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +42,7 @@ class Discovered:
     nwk: str | None = None
     last_seen: float | None = None  # unix time
     initialized: bool = True
+    endpoints: tuple[int, ...] = ()  # every light endpoint: a 2-channel dimmer has two
 
 
 class Registry:
@@ -88,8 +89,51 @@ class Registry:
                     caps=LightCaps(model=item.model, manufacturer=item.manufacturer)
                 )
                 changed = True
+            if item.kind == "light":
+                changed |= self._sync_channels(item)
         self.sync_controllers()
         return changed
+
+    def _sync_channels(self, item: Discovered) -> bool:
+        """A multi-channel device (a 2-gang dimmer): every light endpoint is a lamp. The
+        first is the device itself; the others get ids like "<ieee>-2"."""
+        others = [ep for ep in item.endpoints if ep != item.endpoint]
+        if not others:
+            return False
+        changed = False
+        base = default_name(item.model, item.ieee)
+        primary = self.settings.devices[item.ieee]
+        if primary.name == base:  # never renamed: say it's channel 1
+            primary.name = f"{base} (1)"
+            changed = True
+        for number, endpoint in enumerate(others, start=2):
+            cid = channel_id(item.ieee, endpoint)
+            if cid in self.settings.devices:
+                continue
+            self.settings.devices[cid] = Device(
+                name=f"{base} ({number})",
+                room=primary.room,
+                kind="light",
+                model=item.model,
+                manufacturer=item.manufacturer,
+                endpoint=endpoint,
+                parent=item.ieee,
+            )
+            self.settings.lights[cid] = LightSettings(
+                caps=LightCaps(model=item.model, manufacturer=item.manufacturer)
+            )
+            LOGGER.info("Device %s: channel %d is lamp %s", item.ieee, number, cid)
+            changed = True
+        return changed
+
+    def channels(self, ieee: str) -> list[str]:
+        """The other channels (lamp ids) of a multi-channel device."""
+        return [cid for cid, d in self.settings.devices.items() if d.parent == ieee]
+
+    def device_of(self, lamp: str) -> str:
+        """The Zigbee device a lamp is on (a channel's parent)."""
+        device = self.settings.devices.get(lamp)
+        return device.parent if device is not None and device.parent else lamp
 
     def sync_controllers(self) -> None:
         lamps = set(self.light_ieees())
@@ -169,8 +213,8 @@ class Registry:
         A fixture is paired when all its bulbs are."""
         if ieee in self.fixtures:
             members = self.members(ieee)
-            return bool(members) and all(m in self.discovered for m in members)
-        return ieee in self.discovered
+            return bool(members) and all(self.device_of(m) in self.discovered for m in members)
+        return self.device_of(ieee) in self.discovered
 
     def remove(self, ieee: str) -> list[str]:
         """Forget a device and every reference to it in the settings. A bulb leaves its
@@ -178,6 +222,8 @@ class Registry:
         lamps of their own again. Returns everything removed."""
         settings = self.settings
         removed = [ieee]
+        for channel in self.channels(ieee):  # its other channels go with the device
+            removed += self.remove(channel)
         fixture = self.fixture_of(ieee)
         if fixture is not None:
             settings.devices[fixture].members.remove(ieee)

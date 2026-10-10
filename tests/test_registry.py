@@ -122,3 +122,28 @@ def test_a_placeholder_name_follows_the_model_once_known():
     settings.devices[SENSOR].name = "Makuuhuone"
     registry.sync([Discovered(SENSOR, "motion", "VALLHORN Wireless Motion Sensor")])
     assert settings.devices[SENSOR].name == "Makuuhuone"  # a user's name is kept
+
+
+DIMMER = "a4:c1:38:00:11:22:33:44"
+
+
+def test_a_two_channel_dimmer_is_two_lamps():
+    settings, registry = make_registry()
+    registry.sync([Discovered(DIMMER, "light", "Zigbee smart dimmer", "AGGE", 1, endpoints=(1, 2))])
+    channel = f"{DIMMER}-2"
+    assert registry.light_ieees() == [DIMMER, channel]
+    assert settings.devices[DIMMER].name == "Zigbee smart dimmer 3344 (1)"
+    assert settings.devices[channel].name == "Zigbee smart dimmer 3344 (2)"
+    assert (settings.devices[channel].parent, settings.devices[channel].endpoint) == (DIMMER, 2)
+    assert registry.channels(DIMMER) == [channel] and registry.device_of(channel) == DIMMER
+    assert registry.paired(channel)
+    assert registry.controller(channel).light is not registry.controller(DIMMER).light
+
+    settings.devices[channel].name = "Eteinen"  # the user's name stays on the next sync
+    assert not registry.sync(
+        [Discovered(DIMMER, "light", "Zigbee smart dimmer", "AGGE", 1, endpoints=(1, 2))]
+    )
+    assert settings.devices[channel].name == "Eteinen"
+
+    assert registry.remove(DIMMER) == [DIMMER, channel]  # a channel goes with its device
+    assert registry.light_ieees() == []

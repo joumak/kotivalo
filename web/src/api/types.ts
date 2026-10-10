@@ -180,6 +180,8 @@ export interface DeviceInfo {
   wakeup: boolean
   members: string[] // a fixture's bulbs
   fixture: string | null // the fixture a bulb belongs to
+  parent: string | null // the device a second (third...) channel is on
+  channel: number | null // 1, 2... on a multi-channel device (a 2-gang dimmer)
 }
 
 export interface RunRecord {

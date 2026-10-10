@@ -172,3 +172,16 @@ test('bulbs grouped into a fixture act as one lamp', async ({ page, request }) =
   await expect.poll(async () => (await fixture()).state.on).toBe(true)
   expect((await fixture()).members).toHaveLength(2)
 })
+
+test('each channel of a two-gang dimmer is a lamp of its own', async ({ page, request }) => {
+  const dimmer = '00:00:00:00:00:00:00:d1'
+  await request.post(`/api/lights/${dimmer}`, { data: { action: 'off' } })
+  await request.post(`/api/lights/${dimmer}-2`, { data: { action: 'off' } })
+  await open(page, '#/devices')
+  await expect(page.getByText('Kanava 2').first()).toBeVisible()
+  await page.evaluate(() => (window.location.hash = '#/lights'))
+  await page.getByRole('button', { name: 'Sytytä Fake dimmer 00d1 (2)' }).click()
+  await expect.poll(async () => (await lamp(request, `${dimmer}-2`)).state.on).toBe(true)
+  expect((await lamp(request, dimmer)).state.on).not.toBe(true) // channel 1 untouched
+  await request.post(`/api/lights/${dimmer}-2`, { data: { action: 'off' } })
+})

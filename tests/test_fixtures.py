@@ -211,3 +211,28 @@ async def test_a_fixture_of_fake_bulbs_is_not_saved(setup):
     service, client, clock = setup
     fid, _ = await make_fixture(client)
     assert fid not in service.store.load_settings().devices
+
+
+async def test_a_two_channel_dimmer_in_the_service(aiohttp_client, tmp_path):
+    service = Service(Store(tmp_path), fake=True, fake_lamps=1, fake_dimmers=1)
+    await service.start()
+    try:
+        client = await aiohttp_client(make_web_app(service))
+        dimmer = "00:00:00:00:00:00:00:d1"
+        channel = f"{dimmer}-2"
+        state = await (await client.get("/api/state")).json()
+        assert [x["ieee"] for x in state["lights"]] == [SOLO, dimmer, channel]
+        devices = {d["ieee"]: d for d in state["devices"]}
+        assert (devices[dimmer]["channel"], devices[channel]["channel"]) == (1, 2)
+        assert devices[channel]["parent"] == dimmer
+
+        body = {"action": "level", "value": 120}
+        assert (await client.post(f"/api/lights/{channel}", json=body)).status == 200
+        await settle()
+        assert service._fake_lights[channel].commands() == [("level", 120, 0.3)]
+        assert service._fake_lights[dimmer].commands() == []  # the other channel untouched
+
+        assert (await client.delete(f"/api/devices/{channel}")).status == 200  # the whole device
+        assert dimmer not in service.settings.devices and channel not in service.settings.devices
+    finally:
+        await service.stop()

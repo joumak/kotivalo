@@ -62,6 +62,11 @@ A lamp with several smart bulbs, like a fitting with GU10 spots, works best as a
 
 Each command goes to every bulb at once. The fixture counts as on if any of its bulbs is on, at the brightest one's level. If a bulb doesn't answer, the others still follow. A bulb's roles (motion rule, remote, wake-up lamp) pass to its fixture. Removing a fixture makes its bulbs lamps of their own again.
 
+**Ordinary dimmable bulbs** (e.g. SOLHETTA) can be controlled with an in-wall Zigbee dimmer instead. One example is the **AGGE 2-gang Zigbee push dimmer**: it needs no neutral wire, fits behind a two-button push switch in a Finnish switch box, and handles 5–100 W per channel. An electrician installs it.
+- **Each channel is a lamp of its own** in Kotivalo, listed under its device as "Kanava 1" and "Kanava 2". Removing the device removes both.
+- **The wall buttons keep working** without the Pi: click to switch, hold to dim.
+- **If the lowest levels flicker,** raise the dimmer's minimum brightness on the device itself.
+
 **Buying bulbs:** IKEA's **TRÅDFRI** smart bulbs (e.g. GU10 345 lm white spectrum) are Zigbee and work with the XStick. IKEA's newer **KAJPLATS** range is Matter over Thread, which the XStick can't use. Its Zigbee mode is unofficial and stripped down, so avoid it. Ordinary bulbs like **SOLHETTA** have no radio at all.
 
 ## All lamps at once

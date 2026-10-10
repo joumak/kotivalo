@@ -221,3 +221,39 @@ async def test_a_lamp_sending_commands_is_not_a_remote(app):
     app.add_listener(EventBridge(queue))
     app.packet_received(packet(0x0006, "011501"))
     assert not [e for e in await drain(queue) if isinstance(e, Button)]
+
+
+DIMMER = "a4:c1:38:00:11:22:33:44"
+DIMMER_NWK = 0x4D4D
+
+
+@pytest.fixture
+def dimmer(app):
+    """A 2-gang dimmer: On/Off + Level on endpoints 1 and 2."""
+    device = app.add_device(t.EUI64.convert(DIMMER), DIMMER_NWK)
+    for ep_id in (1, 2):
+        ep = device.add_endpoint(ep_id)
+        ep.profile_id = 0x0104
+        for cluster in (OnOff, LevelControl):
+            ep.add_input_cluster(cluster.cluster_id)
+        ep.status = zigpy.endpoint.Status.ZDO_INIT
+    device.status = zigpy.device.Status.ENDPOINTS_INIT
+    return app
+
+
+async def test_each_channel_of_a_dimmer_reports_as_its_own_lamp(dimmer):
+    from kotivalo.zigbee import discovered
+
+    device = dimmer.get_device(ieee=t.EUI64.convert(DIMMER))
+    assert discovered(device).endpoints == (1, 2)
+    queue = asyncio.Queue()
+    EventBridge(queue).attach_all(dimmer)
+
+    def report(endpoint, data):
+        p = packet(OnOff.cluster_id, data, endpoint=endpoint)
+        return p.replace(src=t.AddrModeAddress(addr_mode=t.AddrMode.NWK, address=DIMMER_NWK))
+
+    dimmer.packet_received(report(1, ON_OFF_REPORT))
+    dimmer.packet_received(report(2, "18090a00001000"))  # channel 2: off
+    events = await drain(queue)
+    assert [(e.ieee, int(e.value)) for e in events] == [(DIMMER, 1), (f"{DIMMER}-2", 0)]

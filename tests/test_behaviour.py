@@ -279,3 +279,34 @@ def test_repeated_empty_reports_do_not_extend_a_manual_off_pause():
     b.motion(SENSOR, False, at(2), night=False)
     b.motion(SENSOR, False, at(6.9), night=False)  # keep-alive
     assert not b.motion_paused(LAMP, at(7.1))
+
+
+def test_hand_only_lamps_are_left_alone_by_motion_and_its_timers():
+    b = make()
+    b.motion(SENSOR, True, at(0), night=False)  # lit by motion
+    b.set_hand_only(LAMP, lamp_on=True)
+    assert b.lamp(LAMP).owner == "manual" and b.lamp(LAMP).off_at is None
+    b.motion(SENSOR, False, at(1), night=False)
+    assert b.tick(at(30)) == []  # no off timer
+    b.manual(LAMP, False, at(31))
+    assert not b.motion_paused(LAMP, at(31))  # no pause needed: motion skips it anyway
+    assert b.motion(SENSOR, True, at(40), night=False) == []  # and never switches it on
+    assert "hand only" in b.why_not_on(LAMP, SENSOR, at(40), night=False)
+
+
+def test_hand_only_ends_with_let_motion_control_or_an_alarm():
+    b = make()
+    b.set_hand_only(LAMP, lamp_on=False)
+    b.automatic(LAMP, lamp_on=False, now=at(0), night=False)
+    assert b.lamp(LAMP).hand_only is False
+    b.set_hand_only(LAMP, lamp_on=False)
+    b.sunrise_started(LAMP)
+    assert b.lamp(LAMP).hand_only is False and b.lamp(LAMP).owner == "sunrise"
+
+
+def test_hand_only_survives_a_restart():
+    b = make()
+    b.set_hand_only(LAMP, lamp_on=True)
+    again = make()
+    again.load(b.to_dict())
+    assert again.lamp(LAMP).hand_only is True

@@ -195,3 +195,22 @@ async def test_only_the_wake_up_lamp_turns_warm_before_off(setup):
     await settle(service)
     fake = service.registry.controller(wakeup).light
     assert fake.commands()[-3:] == [("fade", 2, 0.0), ("ct", 454), ("off",)]
+
+
+async def hand_only(client, value):
+    body = {"action": "hand_only", "value": value}
+    state = await (await client.post(f"/api/lights/{LAMP}", json=body)).json()
+    return next(x for x in state["lights"] if x["ieee"] == LAMP)["hand_only"]
+
+
+async def test_hand_only_from_the_app(setup):
+    service, client, clock = setup
+    assert await hand_only(client, 1) is True
+    service.events.put_nowait(Motion(SENSOR, True))
+    await settle(service)
+    assert lamp_state(service).on is not True  # motion leaves it alone
+
+    assert await hand_only(client, 0) is False
+    await settle(service)
+    assert lamp_state(service).on is True  # released: back to motion, the room is occupied
+    assert (await client.post(f"/api/lights/{LAMP}", json={"action": "hand_only"})).status == 400

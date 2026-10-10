@@ -27,6 +27,7 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   profile: null,
   has_motion: false,
   motion_paused: false,
+  hand_only: false,
   ...extra,
 })
 const snapshot = (sunrise: Snapshot['sunrise'] = null) =>
@@ -76,5 +77,12 @@ describe('lamps with a motion sensor', () => {
     expect(motionMode(lamp({ on: false }, { owner: 'off', has_motion: true }))).toBe('motion')
     expect(motionMode(lamp({}, { owner: 'motion', has_motion: true }))).toBe('motion')
     expect(motionMode(lamp({}, { owner: 'sunrise', has_motion: true }))).toBeNull()
+  })
+
+  it('say when they are on hand only, and offer no motion hand-back then', () => {
+    const held = lamp({ level: 127 }, { owner: 'manual', has_motion: true, hand_only: true })
+    expect(lampStatus(held, snapshot(), fi)).toBe('Vain käsin, 50 %')
+    expect(lampStatus(lamp({ on: false }, { owner: 'off', hand_only: true }), snapshot(), en)).toBe('Hand only, off')
+    expect(motionMode(held)).toBeNull()
   })
 })

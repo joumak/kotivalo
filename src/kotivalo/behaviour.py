@@ -54,6 +54,7 @@ class LampMemo:
     suppressed: bool = False  # manual off while occupied: ignore motion until empty...
     suppressed_until: datetime | None = None  # ...and then for off_after_min more
     off_since: datetime | None = None  # when it was last switched off (lux validity)
+    hand_only: bool = False  # "Vain käsin": nothing automatic changes it (an alarm ends this)
 
 
 @dataclass
@@ -115,6 +116,8 @@ class Behaviour:
         after = timedelta(minutes=rule.off_after_min)
         for ieee in rule.lights:
             lamp = self.lamp(ieee)
+            if lamp.hand_only:
+                continue
             if occupied:
                 if lamp.suppressed or (lamp.suppressed_until and now < lamp.suppressed_until):
                     lamp.suppressed, lamp.suppressed_until = True, None  # wait until empty
@@ -162,7 +165,7 @@ class Behaviour:
             return
         lamp.owner, lamp.off_since = "off", now
         rule = self.rule_for_lamp(ieee)
-        if rule is not None:
+        if rule is not None and not lamp.hand_only:
             if self.sensor(rule.sensor).occupied:
                 lamp.suppressed, lamp.suppressed_until = True, None
             else:
@@ -173,6 +176,7 @@ class Behaviour:
         manual setting or a pause. An occupied, dark room switches an off lamp on now."""
         rule = self.rule_for_lamp(ieee)
         lamp = self.lamp(ieee)
+        lamp.hand_only = False
         if rule is None or lamp.owner == "sunrise":
             return []
         lamp.suppressed, lamp.suppressed_until, lamp.before_sunrise = False, None, None
@@ -197,8 +201,18 @@ class Behaviour:
         elif on and lamp.owner == "off":
             lamp.owner = "manual"
 
+    def set_hand_only(self, ieee: str, lamp_on: bool) -> None:
+        """ "Hand only": motion and its timers leave the lamp alone until released (by
+        automatic(), or by an alarm). A lamp lit by motion is now simply on by hand."""
+        lamp = self.lamp(ieee)
+        lamp.hand_only = True
+        lamp.off_at, lamp.profile, lamp.suppressed, lamp.suppressed_until = None, None, False, None
+        if lamp.owner in ("motion", "sunrise"):
+            lamp.owner = "manual" if lamp_on else "off"
+
     def sunrise_started(self, ieee: str) -> None:
         lamp = self.lamp(ieee)
+        lamp.hand_only = False  # an alarm is something you set yourself: it still runs
         lamp.before_sunrise = lamp.owner if lamp.owner != "sunrise" else lamp.before_sunrise
         lamp.owner, lamp.off_at, lamp.profile = "sunrise", None, None
 
@@ -240,6 +254,8 @@ class Behaviour:
         """Why motion left this lamp as it is (for the log), or None if it switched it."""
         lamp, memo = self.lamp(ieee), self.sensor(sensor)
         rule = self.rule_for_sensor(sensor)
+        if lamp.hand_only:
+            return "it is on 'hand only'"
         if lamp.owner != "off":
             return f"it is {lamp.owner}" + (
                 " (switched by hand: manual wins)" if lamp.owner == "manual" else ""
@@ -259,6 +275,8 @@ class Behaviour:
             if memo.occupied and stale:
                 actions += self.motion(sensor, False, now, night=False)
         for ieee, lamp in self.lamps.items():
+            if lamp.hand_only:
+                continue
             if lamp.owner == "motion" and lamp.off_at is not None and lamp.off_at <= now:
                 lamp.owner, lamp.off_at, lamp.profile, lamp.off_since = "off", None, None, now
                 actions.append(SwitchOff(ieee))

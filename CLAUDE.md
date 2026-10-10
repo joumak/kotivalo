@@ -76,6 +76,11 @@ Everything else:
   - `FakeLight`, for tests and `--fake`
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
 - **`behaviour.py`:** the pure owner model (off / manual / motion / sunrise per lamp): motion rules, manual wins, manual off pauses motion until the room has been empty, "let motion control it" (`automatic`), the night window, timers (`tick`, `next_deadline`). Returns actions (`SwitchOn`, `SwitchOff`); `Service._run_actions` performs them. Saved in `state.json`.
+- **Hand only** (`LampMemo.hand_only`; `lamp_action(ieee, "hand_only", 1|0)`):
+  - `Behaviour.motion` and `tick` skip the lamp.
+  - `automatic()` and `sunrise_started()` clear it.
+  - Releasing it calls `_let_motion_control`.
+  - The master switch restores a hand-only lamp as manual, never hands it to motion.
 - **Master switch** (`Service.master_switch`, `POST /api/master {action: on|off}`):
   - **"off":** saves `{level, kelvin, owner}` of the lit lamps in `state.json` (`State.master`), then sends `lamp_action(off)` to each.
   - **"on":** restores manual lamps via `last_manual` + `lamp_action(on)`, and hands motion-lit ones back with `lamp_action(auto)`. With no memory, every lamp comes on.

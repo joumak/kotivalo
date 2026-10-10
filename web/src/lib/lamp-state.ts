@@ -24,6 +24,9 @@ export function lampStatus(lamp: Lamp, snapshot: Snapshot, t: Messages): string 
     if (run.phase === 'hold') return run.off ? t.lamp.sunriseHold(time(run.off)) : t.lamp.sunriseDone
     return t.lamp.sunrise(time(run.end))
   }
+  if (lamp.hand_only) {
+    return t.lamp.handOnlyState(isLit(lamp) ? t.lamp.level(levelPercent(lamp.state.level)) : t.lamp.offLower)
+  }
   if (!isLit(lamp)) return lamp.has_motion && lamp.motion_paused ? t.lamp.offMotionPaused : t.lamp.off
   if (lamp.owner === 'motion') {
     const status = lamp.profile === 'night' ? t.lamp.nightLight : t.lamp.motionOn
@@ -42,7 +45,7 @@ export function lampStatus(lamp: Lamp, snapshot: Snapshot, t: Messages): string 
  * waits for an empty room). Null when there is no sensor or a sunrise runs the lamp.
  */
 export function motionMode(lamp: Lamp): 'motion' | 'byHand' | 'waits' | null {
-  if (!lamp.has_motion || lamp.owner === 'sunrise') return null
+  if (!lamp.has_motion || lamp.owner === 'sunrise' || lamp.hand_only) return null
   if (lamp.owner === 'manual') return 'byHand'
   return lamp.owner === 'off' && lamp.motion_paused ? 'waits' : 'motion'
 }

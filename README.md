@@ -38,6 +38,13 @@ Every lamp has one owner at a time. The lamp's status line in the UI says which:
 | Night light ("Yövalo") | the motion sensor, at night | as above |
 | Sunrise, full at … ("Auringonnousu") | the wake-up alarm | the hold time after the alarm ends, or you touch the lamp |
 
+**"Vain käsin" ("Hand only")**, a switch in the lamp's controls, makes a lamp yours until you switch it off:
+- Motion and its timers leave it alone, both on and off, however long the room has been empty or still.
+- A hand icon on its tile and "Vain käsin" in its status line show it's on.
+- Switching it off, or "Palauta liikeohjaus", hands the lamp back to its sensor.
+- An alarm still lights the wake-up lamp, and that ends "Hand only".
+- The master switch still includes it.
+
 **Switching a lamp off by hand pauses motion** ("Pois, liike tauolla") until the room has been empty for the set time. You can switch the light off and walk out without it coming back on.
 
 **To hand a lamp back to its motion sensor,** open the lamp and tap **Palauta liikeohjaus** ("Let motion control it"):

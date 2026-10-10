@@ -134,3 +134,18 @@ test('the master switch turns everything off and brings it back', async ({ page,
   await expect.poll(async () => (await lamp(request)).state.level).toBe(150)
   await expect(page.getByRole('button', { name: 'Kaikki pois' })).toBeVisible()
 })
+
+test('hand only keeps motion away from a lamp until released', async ({ page, request }) => {
+  await request.put(`/api/motion/${SENSOR}`, { data: { lights: [LAMP], dark_lux: null } })
+  await request.post('/api/fake/event', { data: { type: 'motion', ieee: SENSOR, value: false } })
+  await open(page, '#/lights')
+  await page.getByRole('button', { name: 'Lukuvalo', exact: true }).click()
+  await page.getByRole('switch', { name: 'Vain käsin' }).click()
+  await expect.poll(async () => (await lamp(request)).hand_only).toBe(true)
+  await expect(page.getByText('Vain käsin, pois').first()).toBeVisible()
+  await request.post('/api/fake/event', { data: { type: 'motion', ieee: SENSOR, value: true } })
+  expect((await lamp(request)).state.on).not.toBe(true)
+  await page.getByRole('switch', { name: 'Vain käsin' }).click()
+  await expect.poll(async () => (await lamp(request)).state.on).toBe(true) // back to motion
+  await request.post('/api/fake/event', { data: { type: 'motion', ieee: SENSOR, value: false } })
+})

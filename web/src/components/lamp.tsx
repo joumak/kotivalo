@@ -1,4 +1,4 @@
-import { Activity, Power, Sunrise } from 'lucide-react'
+import { Activity, Hand, Power, Sunrise } from 'lucide-react'
 import { useCallback } from 'react'
 
 import { useActions } from '@/api/actions'
@@ -43,11 +43,15 @@ export function LampTile({ lamp, snapshot, selected, onSelect }: LampTileProps) 
       <div className="pointer-events-none relative flex items-start justify-between gap-2">
         <span className="text-base leading-snug font-medium text-balance">{lamp.name}</span>
         <span className="mt-0.5 flex shrink-0 gap-1.5">
-          {sensor && (
-            <Activity
-              className={cn('size-4', sensor.occupied ? 'text-ember' : 'text-muted-foreground/60')}
-              aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
-            />
+          {lamp.hand_only ? (
+            <Hand className="size-4 text-muted-foreground" aria-label={t.lamp.handOnly} />
+          ) : (
+            sensor && (
+              <Activity
+                className={cn('size-4', sensor.occupied ? 'text-ember' : 'text-muted-foreground/60')}
+                aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
+              />
+            )
           )}
           {lamp.wakeup && <Sunrise className="size-4 text-ember" aria-label={t.lamp.wakeupLamp} />}
         </span>

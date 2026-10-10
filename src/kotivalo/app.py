@@ -701,6 +701,11 @@ class Service:
         if action == "auto":
             self._let_motion_control(ieee, controller)
             return
+        if action == "hand_only":
+            if value is None:
+                raise SettingsError("hand_only needs a value (1 or 0)")
+            await self._set_hand_only(ieee, controller, bool(value))
+            return
         run = self.manager.active
         in_sunrise = run is not None and run.light == ieee
         if ieee == self.settings.wakeup.light:
@@ -742,6 +747,23 @@ class Service:
         if controller.caps.supports_ct:
             await asyncio.sleep(MOTION_ON_CT_DELAY_S)
             await controller.set_ct(kelvin_to_mired(last.kelvin))
+
+    async def _set_hand_only(self, ieee: str, controller: LightController, on: bool) -> None:
+        """ "Vain käsin": nothing automatic changes the lamp until released. Releasing hands
+        it back to its motion sensor, like "let motion control it"."""
+        if on:
+            if ieee == self.settings.wakeup.light:
+                await self.stop_sunrise("hand only")
+            self.behaviour.set_hand_only(ieee, controller.state.on is True)
+            LOGGER.info("Lamp %s: hand only", ieee)
+            self._behaviour_saved()
+            return
+        self.behaviour.lamp(ieee).hand_only = False
+        LOGGER.info("Lamp %s: hand only released", ieee)
+        if self.behaviour.rule_for_lamp(ieee) is not None:
+            self._let_motion_control(ieee, controller)
+        else:
+            self._behaviour_saved()
 
     def _let_motion_control(self, ieee: str, controller: LightController) -> None:
         """Hands the lamp back to its motion sensor (a running sunrise is left alone)."""
@@ -1051,7 +1073,12 @@ class Service:
         for ieee, saved in memory.items():
             if ieee not in self.registry.controllers:
                 continue  # removed since
-            if saved.get("owner") == "motion" and self.behaviour.rule_for_lamp(ieee):
+            hand_only = self.behaviour.lamp(ieee).hand_only
+            if (
+                saved.get("owner") == "motion"
+                and self.behaviour.rule_for_lamp(ieee)
+                and not hand_only
+            ):
                 jobs.append(self.lamp_action(ieee, "auto"))  # back to its sensor
                 continue
             last = self.settings.light_settings(ieee).last_manual
@@ -1282,6 +1309,7 @@ class Service:
             "profile": memo.profile,
             "has_motion": self.behaviour.rule_for_lamp(ieee) is not None,
             "motion_paused": self.behaviour.motion_paused(ieee, self.clock.now()),
+            "hand_only": memo.hand_only,
         }
 
     def sensor_list(self) -> list[dict]:

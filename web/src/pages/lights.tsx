@@ -1,4 +1,4 @@
-import { Activity } from 'lucide-react'
+import { Activity, Hand } from 'lucide-react'
 import { useState } from 'react'
 
 import { useLive } from '@/api/live'
@@ -9,6 +9,7 @@ import { PageTitle } from '@/components/shell'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { MasterSwitch } from '@/components/master-switch'
 import { WeatherLine } from '@/components/weather-line'
@@ -152,15 +153,52 @@ function ControlPanel({ lamp, snapshot, vertical, drawer, sheet }: ControlPanelP
   )
 }
 
-/** Says whether the motion sensor switches the lamp, and hands it back after a manual switch. */
+/** For lamps something automatic can switch: "hand only", and who switches it now. */
 function MotionMode({ lamp }: { lamp: Lamp }) {
+  if (!lamp.has_motion && !lamp.wakeup) return null
+  return (
+    <div className="mt-6 flex shrink-0 flex-col gap-4">
+      <HandOnly lamp={lamp} />
+      <MotionStatus lamp={lamp} />
+    </div>
+  )
+}
+
+function HandOnly({ lamp }: { lamp: Lamp }) {
+  const t = useT()
+  const actions = useActions()
+  const id = `hand-only-${lamp.ieee}`
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start gap-2">
+        <Hand aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <div>
+          <Label htmlFor={id} className="text-base">
+            {t.lamp.handOnly}
+          </Label>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {lamp.wakeup ? `${t.lamp.handOnlyHelp} ${t.lamp.handOnlyAlarm}` : t.lamp.handOnlyHelp}
+          </p>
+        </div>
+      </div>
+      <Switch
+        id={id}
+        checked={lamp.hand_only}
+        onCheckedChange={(on) => actions.lamp(lamp.ieee, 'hand_only', on ? 1 : 0)}
+      />
+    </div>
+  )
+}
+
+/** Says whether the motion sensor switches the lamp, and hands it back after a manual switch. */
+function MotionStatus({ lamp }: { lamp: Lamp }) {
   const t = useT()
   const actions = useActions()
   const mode = motionMode(lamp)
   if (!mode) return null
   const text = { motion: t.lamp.motionControls, byHand: t.lamp.motionByHand, waits: t.lamp.motionWaits }[mode]
   return (
-    <div className="mt-6 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <p className="flex grow basis-48 items-start gap-2 text-sm text-muted-foreground">
         <Activity aria-hidden className="mt-0.5 size-4 shrink-0" />
         {text}

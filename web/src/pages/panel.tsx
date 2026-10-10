@@ -1,4 +1,4 @@
-import { Activity, Menu, Sunrise } from 'lucide-react'
+import { Activity, Hand, Menu, Sunrise } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 
@@ -217,11 +217,15 @@ function PanelTile({ lamp, room, snapshot }: { lamp: Lamp; room: string; snapsho
       <span className="relative flex flex-col gap-0.5">
         <span className={cn('flex items-center gap-2 text-sm', lit && level.value > 80 ? 'text-black/60' : 'text-muted-foreground')}>
           {room}
-          {sensor && (
-            <Activity
-              className={cn('size-4', sensor.occupied && 'text-ember')}
-              aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
-            />
+          {lamp.hand_only ? (
+            <Hand className="size-4" aria-label={t.lamp.handOnly} />
+          ) : (
+            sensor && (
+              <Activity
+                className={cn('size-4', sensor.occupied && 'text-ember')}
+                aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
+              />
+            )
           )}
         </span>
         <span className="text-xl leading-tight font-medium text-balance">{lamp.name}</span>

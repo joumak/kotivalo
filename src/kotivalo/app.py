@@ -48,16 +48,22 @@ REFRESH_TIMEOUT_S = 12
 TICK_ACTIVE_S = 5  # live-update cadence while a sunrise or pairing runs
 TICK_IDLE_S = 30
 MAX_NAME_LEN = 40
-FAKE_DEVICES = [
-    Discovered(FAKE_PREFIX + "01", "light", "Fake panel", "Test", 1),
-    Discovered(FAKE_PREFIX + "02", "light", "Fake panel", "Test", 1),
-]
+
+
+def fake_devices(lamps: int) -> list[Discovered]:
+    return [
+        Discovered(f"{FAKE_PREFIX}{i:02x}", "light", "Fake panel", "Test", 1)
+        for i in range(1, lamps + 1)
+    ]
 
 
 class Service:
-    def __init__(self, store: Store, *, fake: bool = False, clock: Clock | None = None):
+    def __init__(
+        self, store: Store, *, fake: bool = False, fake_lamps: int = 2, clock: Clock | None = None
+    ):
         self.store = store
         self.fake = fake
+        self.fake_lamps = fake_lamps
         self.clock = clock or Clock()
         self.settings = store.load_settings()
         self.state = store.load_state()
@@ -103,7 +109,7 @@ class Service:
 
     async def start(self) -> None:
         if self.fake:
-            found = FAKE_DEVICES
+            found = fake_devices(self.fake_lamps)
         else:
             from kotivalo.zigbee import DeviceEvents, discover, start_app
 
@@ -113,8 +119,8 @@ class Service:
             self._spawn(self._radio_watch())
         if self.registry.sync(found):
             self._save_settings()
-        if self.fake and self.settings.wakeup.light is None:
-            self.settings.wakeup.light = FAKE_DEVICES[0].ieee  # in memory only
+        if self.fake and self.settings.wakeup.light is None and found:
+            self.settings.wakeup.light = found[0].ieee  # in memory only
         self._attach_wakeup()
         await self._refresh_all()
         self._spawn(self.scheduler.run_forever())
@@ -369,17 +375,10 @@ class Service:
             self._live[ieee] = LatestWins(send)
         return self._live[ieee]
 
-    async def light_action(self, action: str, value: float | None = None) -> None:
-        """Version 1 API: act on the wake-up lamp."""
-        await self.lamp_action(self._require_wakeup(), action, value)
-
     async def refresh_lamp(self, ieee: str) -> None:
         controller = self.registry.controller(ieee)
         async with controller.lock:
             await controller.refresh()
-
-    async def refresh_light(self) -> None:
-        await self.refresh_lamp(self._require_wakeup())
 
     async def test_sunrise(self, minutes: float) -> None:
         if not 0.5 <= minutes <= MAX_TEST_MINUTES:
@@ -419,10 +418,6 @@ class Service:
         # Writing to the lamps can take seconds (or fail for an unreachable lamp).
         for lamp in lamps:
             self._spawn_logged(self._apply_power_on(lamp), f"Power-on setting for {lamp}")
-
-    async def select_light(self, ieee: str) -> None:
-        """Version 1 API: choose the wake-up lamp."""
-        await self.set_wakeup_light(ieee)
 
     def update_alarms(self, alarms: list[dict]) -> None:
         if len(alarms) != 7:
@@ -578,15 +573,9 @@ class Service:
             "timezone": settings.timezone,
             "clock_synced": self.clock_synced,
             "radio": {"type": settings.radio.type, "fake": self.fake},
-            # Version 2
             "lights": [self.lamp_status(ieee) for ieee in self.registry.light_ieees()],
             "wakeup": {"light": wakeup.light, "alarms": alarms, "ramp": ramp},
             "night": asdict(settings.night),
-            # Version 1 (the current page): the wake-up lamp, its alarms and ramp
-            "light": {"ieee": wakeup.light, **self._light_fields(self.controller)},
-            "alarms": alarms,
-            "ramp": ramp,
-            # Both
             "sunrise": run.status(now) if run else None,
             "upcoming": [
                 {
@@ -607,13 +596,15 @@ class Service:
         }
 
 
-async def serve(store: Store, *, host: str, port: int, fake: bool = False) -> int:
+async def serve(
+    store: Store, *, host: str, port: int, fake: bool = False, fake_lamps: int = 2
+) -> int:
     """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
     systemd can restart us: a process that hangs after an error never gets restarted."""
     from kotivalo.web import make_web_app
     from kotivalo.zigbee import NetworkNotFormedError, RadioError
 
-    service = Service(store, fake=fake)
+    service = Service(store, fake=fake, fake_lamps=fake_lamps)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, service.request_stop)

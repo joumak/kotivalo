@@ -25,6 +25,8 @@ kotivalo = "kotivalo.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kotivalo"]
+# The UI is built from web/ into src/kotivalo/static/ (gitignored, so list it explicitly).
+artifacts = ["src/kotivalo/static/**"]
 
 [tool.ruff]
 target-version = "py311"

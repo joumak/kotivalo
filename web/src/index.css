@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/familjen-grotesk";
+
+@custom-variant dark (&:is(.dark *));
+/* Phones held sideways: little height, so navigation moves to a side rail. */
+@custom-variant short (@media (max-height: 500px));
+
+@theme inline {
+  --font-sans: 'Familjen Grotesk Variable', system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  /* The colour of a warm lamp at 2200 K: the sunrise's own colour. */
+  --color-ember: var(--ember);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Light theme: cool snow, ink text. */
+:root {
+  --radius: 0.75rem;
+  --background: #eef1f4;
+  --foreground: #1b2433;
+  --card: #ffffff;
+  --card-foreground: #1b2433;
+  --popover: #ffffff;
+  --popover-foreground: #1b2433;
+  --primary: #b85a0c;
+  --primary-foreground: #ffffff;
+  --secondary: #e3e8ee;
+  --secondary-foreground: #1b2433;
+  --muted: #e6ebf0;
+  --muted-foreground: #5f6b7c;
+  --accent: #dde4ec;
+  --accent-foreground: #1b2433;
+  --destructive: #c2412f;
+  --border: rgb(27 36 51 / 0.1);
+  --input: rgb(27 36 51 / 0.16);
+  --ring: #b85a0c;
+  --ember: #e07a1f;
+}
+
+/* Dark theme: the blue hour of a Nordic evening, so warm lamp colours stand out. */
+.dark {
+  --background: #0f1622;
+  --foreground: #e6eaf0;
+  --card: #172131;
+  --card-foreground: #e6eaf0;
+  --popover: #1f2b3f;
+  --popover-foreground: #e6eaf0;
+  --primary: #ffa957;
+  --primary-foreground: #1a1206;
+  --secondary: #1f2b3f;
+  --secondary-foreground: #e6eaf0;
+  --muted: #1a2433;
+  --muted-foreground: #8c97a8;
+  --accent: #24324a;
+  --accent-foreground: #e6eaf0;
+  --destructive: #e0685a;
+  --border: rgb(230 234 240 / 0.09);
+  --input: rgb(230 234 240 / 0.14);
+  --ring: #ffa957;
+  --ember: #ff932c;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

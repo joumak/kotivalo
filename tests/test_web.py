@@ -18,52 +18,70 @@ async def client(aiohttp_client, tmp_path):
     await service.stop()
 
 
+LAMP_1 = "00:00:00:00:00:00:00:01"  # the fake lamps of `serve --fake`
+LAMP_2 = "00:00:00:00:00:00:00:02"
+
+
+def lamp(state: dict, ieee: str) -> dict:
+    return next(x for x in state["lights"] if x["ieee"] == ieee)
+
+
 async def test_state_and_manual_control(client):
     state = await (await client.get("/api/state")).json()
-    assert state["light"]["available"] and state["light"]["caps"]["supports_ct"]
+    assert lamp(state, LAMP_1)["available"] and lamp(state, LAMP_1)["caps"]["supports_ct"]
 
-    rsp = await client.post("/api/light", json={"action": "level", "value": 128})
+    rsp = await client.post(f"/api/lights/{LAMP_1}", json={"action": "level", "value": 128})
     assert rsp.status == 200
-    assert (await rsp.json())["light"]["state"]["level"] == 128
+    assert lamp(await rsp.json(), LAMP_1)["state"]["level"] == 128
 
-    rsp = await client.post("/api/light", json={"action": "kelvin", "value": 2700})
-    assert (await rsp.json())["light"]["state"]["kelvin"] == 2703  # 370 mired
+    rsp = await client.post(f"/api/lights/{LAMP_1}", json={"action": "kelvin", "value": 2700})
+    assert lamp(await rsp.json(), LAMP_1)["state"]["kelvin"] == 2703  # 370 mired
 
 
 async def test_warmth_slider_covers_the_whole_light_range(client):
     state = await (await client.get("/api/state")).json()
-    low, high = state["light"]["kelvin_range"]
-    assert (high - low) % state["light"]["kelvin_step"] == 0
+    low, high = lamp(state, LAMP_1)["kelvin_range"]
+    assert (high - low) % lamp(state, LAMP_1)["kelvin_step"] == 0
 
     for kelvin, mireds in ((high, 250), (low, 454)):  # slider ends clamp to the light's range
-        rsp = await client.post("/api/light", json={"action": "kelvin", "value": kelvin})
-        assert (await rsp.json())["light"]["state"]["mireds"] == mireds
+        body = {"action": "kelvin", "value": kelvin}
+        rsp = await client.post(f"/api/lights/{LAMP_1}", json=body)
+        assert lamp(await rsp.json(), LAMP_1)["state"]["mireds"] == mireds
 
 
 async def test_writes_must_be_json(client):
-    rsp = await client.post("/api/light", data="action=on")
+    rsp = await client.post(f"/api/lights/{LAMP_1}", data="action=on")
     assert rsp.status == 415
 
 
 async def test_invalid_alarm_is_rejected_and_valid_one_saved(client):
     alarms = [{"enabled": False, "time": "07:00"}] * 7
     bad = [{"enabled": True, "time": "25:00"}] + alarms[1:]
-    assert (await client.put("/api/alarms", json={"alarms": bad})).status == 400
+    assert (await client.put("/api/wakeup", json={"alarms": bad})).status == 400
 
     good = [{"enabled": True, "time": "06:30"}] + alarms[1:]
-    state = await (await client.put("/api/alarms", json={"alarms": good})).json()
-    assert state["alarms"][0] == {"enabled": True, "time": "06:30"}
+    state = await (await client.put("/api/wakeup", json={"alarms": good})).json()
+    assert state["wakeup"]["alarms"][0] == {"enabled": True, "time": "06:30"}
     assert state["upcoming"][0]["label"] == "Mon 06:30"
     assert client.service.store.load_settings().wakeup.alarms[0].time == "06:30"
+
+
+async def test_ramp_is_validated_and_saved(client):
+    ramp = {"duration_min": 20, "gamma": 2, "warm_kelvin": 2200, "cool_kelvin": 3500, "hold_min": 0}
+    state = await (await client.put("/api/wakeup", json={"ramp": ramp})).json()
+    assert state["wakeup"]["ramp"] == ramp
+    bad = {**ramp, "warm_kelvin": 5000}
+    assert (await client.put("/api/wakeup", json={"ramp": bad})).status == 400
 
 
 async def test_manual_action_stops_a_running_sunrise(client):
     state = await (await client.post("/api/sunrise/test", json={"minutes": 2})).json()
     assert state["sunrise"]["kind"] == "test"
+    assert state["sunrise"]["light"] == LAMP_1
 
-    state = await (await client.post("/api/light", json={"action": "off"})).json()
+    state = await (await client.post(f"/api/lights/{LAMP_1}", json={"action": "off"})).json()
     assert state["sunrise"] is None
-    assert state["light"]["state"]["on"] is False
+    assert lamp(state, LAMP_1)["state"]["on"] is False
     assert ("stop",) in client.service.controller.light.commands()
 
 
@@ -72,13 +90,14 @@ async def test_token_protects_the_api(client):
     assert (await client.get("/api/state")).status == 401
     rsp = await client.get("/api/state", headers={"X-Token": "secret"})
     assert rsp.status == 200
-    assert (await client.get("/")).status == 200  # the page itself stays public
+    assert (await client.get("/")).status != 401  # the page itself stays public
 
 
-# --- version 2 -------------------------------------------------------------------------
+async def test_version_1_endpoints_are_gone(client):
+    assert (await client.post("/api/light", json={"action": "on"})).status in (404, 405)
 
-LAMP_1 = "00:00:00:00:00:00:00:01"  # the fake lamps of `serve --fake`
-LAMP_2 = "00:00:00:00:00:00:00:02"
+
+# --- several lamps ----------------------------------------------------------------------
 
 
 async def test_lists_every_lamp_with_its_role(client):
@@ -144,7 +163,7 @@ async def test_rename_and_remove_devices(client):
     state = await (await client.delete(f"/api/devices/{LAMP_1}")).json()
     assert [x["ieee"] for x in state["lights"]] == [LAMP_2]
     assert state["wakeup"]["light"] is None
-    assert (await client.post("/api/light", json={"action": "on"})).status == 502
+    assert (await client.post("/api/sunrise/test", json={"minutes": 2})).status == 502
 
 
 async def test_night_window(client):

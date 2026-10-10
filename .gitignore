@@ -7,3 +7,8 @@ var/
 .idea/
 *.iml
 backups/
+src/kotivalo/static/
+web/node_modules/
+web/test-results/
+web/playwright-report/
+web/screenshots/

@@ -3,7 +3,8 @@
 # then install and restart the systemd service.
 #   deploy/deploy.sh               full deploy
 #   deploy/deploy.sh --no-service  install the code only (CLI use; service untouched)
-# Env: PI_HOST (default pi@kotivalo.local), SKIP_TESTS=1 skips ruff and pytest.
+# Env: PI_HOST (default pi@kotivalo.local), SKIP_TESTS=1 skips the checks and tests,
+#      SKIP_UI=1 deploys the UI already built in src/kotivalo/static.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,6 +17,23 @@ if [[ "${SKIP_TESTS:-0}" != 1 ]]; then
   .venv/bin/ruff check .
   .venv/bin/pytest -q
 fi
+
+# The UI (web/, React) is built here; the Pi only serves the result.
+if [[ "${SKIP_UI:-0}" != 1 ]]; then
+  command -v npm >/dev/null || source "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+  (
+    cd web
+    if [[ ! -d node_modules || package-lock.json -nt node_modules/.package-lock.json ]]; then
+      npm ci --no-fund --no-audit
+    fi
+    if [[ "${SKIP_TESTS:-0}" != 1 ]]; then
+      npm run lint
+      npm test
+    fi
+    npm run build
+  )
+fi
+test -f src/kotivalo/static/index.html || { echo "The UI is not built (src/kotivalo/static)"; exit 1; }
 
 rsync -az --delete --exclude-from=deploy/rsync-exclude ./ "$PI_HOST:$REMOTE_DIR/"
 

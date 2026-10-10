@@ -61,8 +61,11 @@ def ok(request: web.Request) -> web.Response:
     return web.json_response(service_of(request).snapshot())
 
 
-async def index(request: web.Request) -> web.FileResponse:
-    return web.FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+async def index(request: web.Request) -> web.StreamResponse:
+    page = STATIC_DIR / "index.html"
+    if not page.exists():
+        return web.Response(status=503, text="The UI is not built: run `npm run build` in web/.")
+    return web.FileResponse(page, headers={"Cache-Control": "no-cache"})
 
 
 async def get_state(request: web.Request) -> web.Response:
@@ -97,7 +100,7 @@ async def events(request: web.Request) -> web.StreamResponse:
     return response
 
 
-# --- version 2: many lamps ------------------------------------------------------------
+# --- lamps and devices ----------------------------------------------------------------
 
 
 async def post_lamp(request: web.Request) -> web.Response:
@@ -132,29 +135,7 @@ async def put_night(request: web.Request) -> web.Response:
     return ok(request)
 
 
-# --- shared and version 1 (the current page acts on the wake-up lamp) ------------------
-
-
-async def put_alarms(request: web.Request) -> web.Response:
-    body = await request.json()
-    service_of(request).update_alarms(body["alarms"])
-    return ok(request)
-
-
-async def put_ramp(request: web.Request) -> web.Response:
-    service_of(request).update_ramp(await request.json())
-    return ok(request)
-
-
-async def post_light(request: web.Request) -> web.Response:
-    body = await request.json()
-    await service_of(request).light_action(body["action"], body.get("value"))
-    return ok(request)
-
-
-async def post_refresh(request: web.Request) -> web.Response:
-    await service_of(request).refresh_light()
-    return ok(request)
+# --- wake-up, pairing ---------------------------------------------------------------
 
 
 async def post_test(request: web.Request) -> web.Response:
@@ -180,12 +161,6 @@ async def post_permit(request: web.Request) -> web.Response:
     return ok(request)
 
 
-async def post_target(request: web.Request) -> web.Response:
-    body = await request.json()
-    await service_of(request).select_light(str(body["ieee"]))
-    return ok(request)
-
-
 def make_web_app(service) -> web.Application:
     app = web.Application(middlewares=[errors, guard])
     app[SERVICE] = service
@@ -193,22 +168,15 @@ def make_web_app(service) -> web.Application:
     router.add_get("/", index)
     router.add_get("/api/state", get_state)
     router.add_get("/api/events", events)
-    # version 2
     router.add_post("/api/lights/{ieee}", post_lamp)
     router.add_post("/api/lights/{ieee}/refresh", post_lamp_refresh)
     router.add_put("/api/devices/{ieee}", put_device)
     router.add_delete("/api/devices/{ieee}", delete_device)
     router.add_put("/api/wakeup", put_wakeup)
     router.add_put("/api/night", put_night)
-    # shared and version 1
-    router.add_put("/api/alarms", put_alarms)
-    router.add_put("/api/ramp", put_ramp)
-    router.add_post("/api/light", post_light)
-    router.add_post("/api/refresh", post_refresh)
     router.add_post("/api/sunrise/test", post_test)
     router.add_post("/api/sunrise/stop", post_stop)
     router.add_post("/api/skip", post_skip)
     router.add_post("/api/permit", post_permit)
-    router.add_post("/api/target", post_target)
     router.add_static("/static/", STATIC_DIR)
     return app

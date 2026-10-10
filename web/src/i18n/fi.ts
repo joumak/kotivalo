@@ -125,6 +125,16 @@ export const fi: Messages = {
     notConfigured: 'Ei vielä käytössä: liitä uudelleen painamalla liitospainiketta 4 kertaa valon lähellä.',
     legend: 'Päälle ja pois ohjaavat valoja (viimeksi käsin asetettu kirkkaus ja sävy). Pitämällä himmentää. Nuolet säätävät sävyä.',
     save: 'Tallenna',
+    updateFirmware: 'Päivitä laiteohjelmisto',
+    updateHelp:
+      'Vanhemmat säätimet lähettävät painalluksensa niin, ettei Pi kuule niitä; uusi laiteohjelmisto korjaa sen. Päivitys kestää 30–90 minuuttia. Pidä säädin valon lähellä.',
+    firmware: {
+      waiting: 'Laiteohjelmiston päivitys: paina säätimen painiketta muutaman sekunnin välein, kunnes päivitys alkaa.',
+      updating: (percent) => `Päivitetään laiteohjelmistoa, ${percent} %. Pidä säädin valon lähellä.`,
+      done: 'Laiteohjelmisto päivitetty. Paina painiketta, niin säädin otetaan uudelleen käyttöön.',
+      failed: 'Päivitys epäonnistui. Säätimessä on yhä vanha laiteohjelmisto.',
+      none: 'Säätimessä on jo uusin laiteohjelmisto.',
+    },
     actions: {
       on: 'Päälle',
       off: 'Pois',

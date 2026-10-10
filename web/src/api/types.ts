@@ -92,6 +92,12 @@ export interface Remote {
   last_action: RemoteAction | null
   last_press: string | null // ISO
   lights: string[] // the lamps it controls
+  firmware: FirmwareUpdate | null // an update started since the service started
+}
+
+export interface FirmwareUpdate {
+  state: 'waiting' | 'updating' | 'done' | 'failed' | 'none'
+  progress: number // percent
 }
 
 export interface Alarm {

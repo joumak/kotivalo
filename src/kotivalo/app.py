@@ -142,6 +142,7 @@ class Service:
         self._configuring: set[str] = set()
         self.remote_memo: dict[str, dict] = {}  # battery and last press, until a restart
         self._repeats: dict[str, asyncio.Task] = {}  # held arrows, per remote
+        self.firmware: dict[str, dict] = {}  # firmware updates: state and progress
 
     # --- lifecycle ---------------------------------------------------------------
 
@@ -797,6 +798,50 @@ class Service:
         if task is not None:
             task.cancel()
 
+    def start_firmware_update(self, ieee: str) -> None:
+        """Update a remote's firmware from IKEA's server, in the background. Old remotes
+        (E1743, E1810 before 2.3.075) send only to groups, which the XStick drops."""
+        if self._kind(ieee) != "remote":
+            raise SettingsError(f"{ieee} is not a remote")
+        if self.zigbee is None or is_fake(ieee):
+            raise SettingsError("Firmware updates need the radio")
+        if self.firmware.get(ieee, {}).get("state") in ("waiting", "updating"):
+            raise SettingsError("A firmware update is already running")
+        self.firmware[ieee] = {"state": "waiting", "progress": 0.0}
+        self._spawn_logged(self._update_firmware(ieee), f"Firmware update of {ieee}")
+
+    async def _update_firmware(self, ieee: str) -> None:
+        import zigpy.types
+
+        from kotivalo.zigbee import find_firmware, update_firmware
+
+        status = self.firmware[ieee]
+        reported = -10.0
+
+        def progress(percent: float) -> None:
+            nonlocal reported
+            status.update(state="updating", progress=round(percent, 1))
+            if percent - reported >= 10:
+                reported = percent
+                LOGGER.info("Firmware update of %s: %.0f %%", ieee, percent)
+            self.notify()
+
+        try:
+            device = self.zigbee.get_device(ieee=zigpy.types.EUI64.convert(ieee))
+            image = await find_firmware(device)
+            if image is None:
+                status["state"] = "none"
+                return
+            LOGGER.info("Updating %s to firmware %s", ieee, image.metadata.file_version)
+            status["state"] = await update_firmware(device, image, progress)
+        except Exception:
+            status["state"] = "failed"
+            raise
+        LOGGER.info("Firmware update of %s: %s", ieee, status["state"])
+        if status["state"] == "done":  # unicast bindings work now: set it up when it wakes
+            self.settings.devices[ieee].configured = False
+            self._save_settings()
+
     def update_remote(self, remote: str, data: dict) -> None:
         """Which lamps a remote controls."""
         if self._kind(remote) != "remote":
@@ -829,6 +874,7 @@ class Service:
                     "battery": memo.get("battery"),
                     "last_action": memo.get("last_action"),
                     "last_press": press.isoformat() if press else None,
+                    "firmware": self.firmware.get(ieee),
                     "lights": next(
                         (b.lights for b in self.settings.remotes if b.remote == ieee), []
                     ),

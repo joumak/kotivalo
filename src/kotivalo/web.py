@@ -150,6 +150,11 @@ async def delete_remote(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def post_firmware(request: web.Request) -> web.Response:
+    service_of(request).start_firmware_update(request.match_info["ieee"])
+    return ok(request)
+
+
 async def put_night(request: web.Request) -> web.Response:
     service_of(request).update_night(await request.json())
     return ok(request)
@@ -215,6 +220,7 @@ def make_web_app(service) -> web.Application:
     router.add_delete("/api/motion/{ieee}", delete_motion)
     router.add_put("/api/remotes/{ieee}", put_remote)
     router.add_delete("/api/remotes/{ieee}", delete_remote)
+    router.add_post("/api/remotes/{ieee}/firmware", post_firmware)
     router.add_post("/api/sunrise/test", post_test)
     router.add_post("/api/sunrise/stop", post_stop)
     router.add_post("/api/skip", post_skip)

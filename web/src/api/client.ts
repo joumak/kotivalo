@@ -59,6 +59,7 @@ export const api = {
   motion: (sensor: string, rule: Omit<MotionRule, 'sensor'>) => request('PUT', `/api/motion/${sensor}`, rule),
   removeMotion: (sensor: string) => request('DELETE', `/api/motion/${sensor}`),
   remote: (remote: string, lights: string[]) => request('PUT', `/api/remotes/${remote}`, { lights }),
+  updateFirmware: (remote: string) => request('POST', `/api/remotes/${remote}/firmware`, {}),
   skip: (key: string, skip: boolean) => request('POST', '/api/skip', { key, skip }),
   testSunrise: (minutes: number) => request('POST', '/api/sunrise/test', { minutes }),
   stopSunrise: () => request('POST', '/api/sunrise/stop', {}),

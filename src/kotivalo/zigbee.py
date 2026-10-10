@@ -327,6 +327,71 @@ async def _configure(device, clusters, reporting: dict, timeout_s: float) -> boo
     return ok
 
 
+# IKEA firmware image types of remotes, by model id (from IKEA's OTA index).
+IKEA_IMAGE_TYPES = {
+    "TRADFRI remote control": 0x11C1,  # E1810, "tradfri-controller"
+    "TRADFRI wireless dimmer": 0x11C2,
+    "TRADFRI on/off switch": 0x11C5,  # E1743, "tradfri-onoff-controller"
+    "TRADFRI SHORTCUT Button": 0x11C6,  # E1812
+    "Remote Control N2": 0x11CB,  # STYRBAR
+    "RODRET Dimmer": 0x11CD,
+}
+WAKE_WINDOW_S = 300  # how long to keep trying to reach a sleeping remote
+WAKE_RETRY_S = 5
+
+
+class FirmwareError(Exception):
+    pass
+
+
+async def find_firmware(device: zigpy.device.Device):
+    """IKEA's newest firmware for this remote, downloaded; None if IKEA has none."""
+    from zigpy.ota import OtaImageWithMetadata
+    from zigpy.ota.providers import Tradfri
+
+    image_type = IKEA_IMAGE_TYPES.get(device.model or "")
+    if image_type is None:
+        raise FirmwareError(f"No IKEA firmware is known for {device.model!r}")
+    index = await Tradfri().load_index() or []
+    images = [i for i in index if i.image_type == image_type]
+    if not images:
+        return None
+    newest = max(images, key=lambda i: i.file_version)
+    return OtaImageWithMetadata(metadata=newest, firmware=await newest.fetch())
+
+
+async def update_firmware(
+    device, image, on_progress: Callable[[float], None], wake_window_s: float = WAKE_WINDOW_S
+) -> str:
+    """Send `image` to a sleepy device. It hears us only right after a button press, so
+    keep offering the update until it starts (the user presses a button now and then).
+    Returns "done", "none" (the device declined: up to date, or other hardware) or
+    "failed". A failed update leaves the old firmware in place."""
+    started = False
+
+    def progress(current: int, total: int, percent: float) -> None:
+        nonlocal started
+        started = True
+        on_progress(percent)
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + wake_window_s
+    while True:
+        try:
+            status = await device.update_firmware(image, progress_callback=progress)
+        except (zigpy.exceptions.ZigbeeException, TimeoutError) as exc:
+            status = exc
+        if status == foundation.Status.SUCCESS:
+            return "done"
+        if status == foundation.Status.NO_IMAGE_AVAILABLE:
+            return "none"
+        if started or loop.time() >= deadline:
+            LOGGER.warning("Firmware update of %s failed: %r", device.ieee, status)
+            return "failed"
+        LOGGER.info("Waiting for %s to wake up for its firmware update (%r)", device.ieee, status)
+        await asyncio.sleep(WAKE_RETRY_S)
+
+
 def illuminance_to_lux(measured_value: int) -> float:
     """ZCL illuminance is 10000 * log10(lux) + 1; 0 means too dark to measure."""
     return 0.0 if measured_value <= 0 else round(10 ** ((measured_value - 1) / 10000), 1)

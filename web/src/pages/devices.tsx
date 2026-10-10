@@ -215,8 +215,12 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
         ]
       : [device.wakeup ? t.lamp.wakeupLamp : null, seen]
   // What to do next, on a line of its own.
-  const hint =
-    sensor && !sensor.configured
+  const firmware = remote?.firmware
+  const hint = firmware
+    ? firmware.state === 'updating'
+      ? t.remote.firmware.updating(Math.floor(firmware.progress))
+      : t.remote.firmware[firmware.state]
+    : sensor && !sensor.configured
       ? t.sensor.notConfigured
       : remote && !remote.configured
         ? t.remote.notConfigured
@@ -289,6 +293,10 @@ function RemoteDialog({ remote, snapshot, onClose }: { remote: Remote; snapshot:
   const save = async () => {
     if (await actions.remote(remote.ieee, lights)) onClose()
   }
+  const updating = remote.firmware?.state === 'waiting' || remote.firmware?.state === 'updating'
+  const updateFirmware = async () => {
+    if (await actions.updateFirmware(remote.ieee)) onClose()
+  }
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
@@ -314,6 +322,12 @@ function RemoteDialog({ remote, snapshot, onClose }: { remote: Remote; snapshot:
             )
           })}
         </fieldset>
+        <div className="flex flex-col items-start gap-2 border-t pt-4">
+          <p className="max-w-prose text-sm text-muted-foreground">{t.remote.updateHelp}</p>
+          <Button variant="outline" disabled={updating} onClick={updateFirmware}>
+            {t.remote.updateFirmware}
+          </Button>
+        </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             {t.wakeup.cancel}

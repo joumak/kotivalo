@@ -131,6 +131,16 @@ export const en = {
     legend:
       'On and off switch the lamps (the last brightness and warmth set by hand). Hold to dim. The arrows change warmth.',
     save: 'Save',
+    updateFirmware: 'Update firmware',
+    updateHelp:
+      'Older remotes send their presses where the Pi cannot hear them; new firmware fixes that. It takes 30-90 minutes. Keep the remote near a lamp.',
+    firmware: {
+      waiting: 'Firmware update: press a button on the remote every few seconds until it starts.',
+      updating: (percent: number) => `Updating firmware, ${percent} %. Keep the remote near a lamp.`,
+      done: 'Firmware updated. Press a button to set the remote up again.',
+      failed: 'The firmware update failed. The remote still has its old firmware.',
+      none: 'The remote already has the newest firmware.',
+    },
     actions: {
       on: 'On',
       off: 'Off',

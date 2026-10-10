@@ -52,4 +52,12 @@ class Seen:
     ieee: str
 
 
-Event = LightReport | Announce | Motion | Lux | Battery | Seen
+@dataclass(frozen=True)
+class Button:
+    """A remote's button: one of remotes.ACTIONS."""
+
+    ieee: str
+    action: str
+
+
+Event = LightReport | Announce | Motion | Lux | Battery | Seen | Button

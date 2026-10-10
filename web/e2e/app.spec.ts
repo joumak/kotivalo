@@ -3,6 +3,7 @@ import type { APIRequestContext, Page } from '@playwright/test'
 
 const LAMP = '00:00:00:00:00:00:00:02'
 const SENSOR = '00:00:00:00:00:00:00:f1'
+const REMOTE = '00:00:00:00:00:00:00:e1'
 
 async function state(request: APIRequestContext) {
   return (await request.get('/api/state')).json()
@@ -17,6 +18,7 @@ async function reset(request: APIRequestContext) {
   }
   await request.put('/api/night', { data: { start: '23:00', end: '07:00' } })
   await request.delete(`/api/motion/${SENSOR}`)
+  await request.delete(`/api/remotes/${REMOTE}`)
   await request.put(`/api/devices/${SENSOR}`, { data: { name: 'Eteisen tunnistin', room: 'Eteinen' } })
   const alarms = Array.from({ length: 7 }, () => ({ enabled: false, time: '07:00' }))
   await request.put('/api/wakeup', { data: { alarms } })
@@ -98,4 +100,15 @@ test('gives a lamp switched on by hand back to its motion sensor', async ({ page
   await page.getByRole('button', { name: 'Palauta liikeohjaus' }).click()
   await expect(page.getByText('Liiketunnistin ohjaa tätä valoa')).toBeVisible()
   expect((await lamp(request)).owner).toBe('motion')
+})
+
+test('a remote switches the lamps chosen for it', async ({ page, request }) => {
+  await open(page, '#/devices')
+  await page.getByRole('button', { name: /^STYRBAR 00e1: valot$/ }).click()
+  await page.getByRole('switch', { name: 'Lukuvalo' }).click()
+  await page.getByRole('button', { name: 'Tallenna' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await request.post('/api/fake/event', { data: { type: 'button', ieee: REMOTE, value: 'on' } })
+  await expect.poll(async () => (await lamp(request)).state.on).toBe(true)
+  await expect(page.getByText(/Painettu juuri nyt: Päälle/)).toBeVisible()
 })

@@ -37,6 +37,7 @@ export function useActions() {
       removeDevice: (ieee: string) => run(api.removeDevice(ieee)),
       motion: (sensor: string, rule: Parameters<typeof api.motion>[1]) => run(api.motion(sensor, rule)),
       removeMotion: (sensor: string) => run(api.removeMotion(sensor)),
+      remote: (remote: string, lights: string[]) => run(api.remote(remote, lights)),
       skip: (key: string, skip: boolean) => run(api.skip(key, skip)),
       testSunrise: (minutes: number) => run(api.testSunrise(minutes)),
       stopSunrise: () => run(api.stopSunrise()),

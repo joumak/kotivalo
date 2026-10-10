@@ -15,8 +15,8 @@ from aiohttp import web
 from kotivalo import systemd
 from kotivalo.behaviour import Behaviour, SwitchOff, SwitchOn, night_now
 from kotivalo.clock import Clock, ntp_synchronized
-from kotivalo.events import Announce, Battery, Event, LightReport, Lux, Motion, Seen
-from kotivalo.light import MIN_LEVEL, FakeLight, LatestWins, LightController, LightError
+from kotivalo.events import Announce, Battery, Button, Event, LightReport, Lux, Motion, Seen
+from kotivalo.light import MAX_LEVEL, MIN_LEVEL, FakeLight, LatestWins, LightController, LightError
 from kotivalo.ramp import (
     KELVIN_STEP,
     Curve,
@@ -34,6 +34,7 @@ from kotivalo.settings import (
     NightWindow,
     Profile,
     RampSettings,
+    RemoteBinding,
     SettingsError,
     Store,
     is_fake,
@@ -59,6 +60,11 @@ POLL_MAX_S = 600
 ANNOUNCE_SETTLE_S = 2
 BEHAVIOUR_TICK_S = 15  # re-check owner timers at least this often
 MOTION_ON_CT_DELAY_S = 0.5  # IKEA ignores colour changes until the lamp is on
+DIM_RATE = 85  # levels per second while a remote's button is held: ~3 s end to end
+STEP_LEVELS = 51  # one tap of a remote's up/down: 20 %
+WARMTH_STEP_MIREDS = 40  # one arrow tap
+WARMTH_REPEAT_S = 0.4  # while an arrow is held
+HOLD_LIMIT_S = 10  # a held arrow whose release never arrived stops by itself
 
 
 def poll_delay(failures: int) -> float:
@@ -67,13 +73,20 @@ def poll_delay(failures: int) -> float:
     return float(min(POLL_MAX_S, POLL_INTERVAL_S * 2**failures))
 
 
-def fake_devices(lamps: int, sensors: int = 0) -> list[Discovered]:
+def fake_devices(lamps: int, sensors: int = 0, remotes: int = 0) -> list[Discovered]:
     return [
-        Discovered(f"{FAKE_PREFIX}{i:02x}", "light", "Fake panel", "Test", 1)
-        for i in range(1, lamps + 1)
-    ] + [
-        Discovered(f"{FAKE_PREFIX}f{i}", "motion", "Fake motion sensor", "Test")
-        for i in range(1, sensors + 1)
+        *(
+            Discovered(f"{FAKE_PREFIX}{i:02x}", "light", "Fake panel", "Test", 1)
+            for i in range(1, lamps + 1)
+        ),
+        *(
+            Discovered(f"{FAKE_PREFIX}f{i}", "motion", "Fake motion sensor", "Test")
+            for i in range(1, sensors + 1)
+        ),
+        *(
+            Discovered(f"{FAKE_PREFIX}e{i}", "remote", "Remote Control N2", "Test")
+            for i in range(1, remotes + 1)
+        ),
     ]
 
 
@@ -85,12 +98,14 @@ class Service:
         fake: bool = False,
         fake_lamps: int = 2,
         fake_sensors: int = 0,
+        fake_remotes: int = 0,
         clock: Clock | None = None,
     ):
         self.store = store
         self.fake = fake
         self.fake_lamps = fake_lamps
         self.fake_sensors = fake_sensors
+        self.fake_remotes = fake_remotes
         self.clock = clock or Clock()
         self.settings = store.load_settings()
         self.state = store.load_state()
@@ -125,6 +140,8 @@ class Service:
         self.events: asyncio.Queue[Event] = asyncio.Queue()
         self._behaviour_changed = asyncio.Event()
         self._configuring: set[str] = set()
+        self.remote_memo: dict[str, dict] = {}  # battery and last press, until a restart
+        self._repeats: dict[str, asyncio.Task] = {}  # held arrows, per remote
 
     # --- lifecycle ---------------------------------------------------------------
 
@@ -147,7 +164,7 @@ class Service:
 
     async def start(self) -> None:
         if self.fake:
-            found = fake_devices(self.fake_lamps, self.fake_sensors)
+            found = fake_devices(self.fake_lamps, self.fake_sensors, self.fake_remotes)
         else:
             from kotivalo.zigbee import DeviceEvents, EventBridge, discover, start_app
 
@@ -180,6 +197,8 @@ class Service:
 
     async def stop(self) -> None:
         await self.manager.shutdown()
+        for remote in list(self._repeats):
+            self._stop_repeat(remote)
         for task in self._tasks:
             task.cancel()
         # Bounded: a task that swallows its cancellation must not hang shutdown.
@@ -311,8 +330,8 @@ class Service:
             # again on "joined" too.
             if ieee in self.registry.controllers and (kind == "initialized" or known_lamp):
                 self._spawn_logged(self._setup_lamp(ieee), f"Setting up lamp {ieee}")
-            elif self.settings.devices.get(ieee) and self.settings.devices[ieee].kind == "motion":
-                self.settings.devices[ieee].configured = False  # a (re)joined sensor
+            elif self._sleepy(ieee):
+                self.settings.devices[ieee].configured = False  # a (re)joined sensor or remote
                 self._configure_soon(ieee)  # it is awake right now
         self.notify()
 
@@ -354,6 +373,11 @@ class Service:
             self.settings.devices[ieee].configured = True
             self._save_settings()
 
+    def _sleepy(self, ieee: str) -> bool:
+        """A battery device (motion sensor or remote): configured only while awake."""
+        device = self.settings.devices.get(ieee)
+        return device is not None and device.kind in ("motion", "remote")
+
     def _configure_soon(self, ieee: str) -> None:
         """Configure a sleepy device while it is awake (it just sent something)."""
         if ieee in self._configuring or self.zigbee is None:
@@ -363,17 +387,19 @@ class Service:
         async def run():
             import zigpy.types
 
-            from kotivalo.zigbee import configure_sensor
+            from kotivalo.zigbee import configure_remote, configure_sensor
 
+            remote = self.settings.devices[ieee].kind == "remote"
+            configure = configure_remote if remote else configure_sensor
             try:
                 device = self.zigbee.get_device(ieee=zigpy.types.EUI64.convert(ieee))
-                if await configure_sensor(device):
+                if await configure(device):
                     self.settings.devices[ieee].configured = True
                     self._save_settings()
             finally:
                 self._configuring.discard(ieee)
 
-        self._spawn_logged(run(), f"Configuring sensor {ieee}")
+        self._spawn_logged(run(), f"Configuring {ieee}")
 
     async def _consume_events(self) -> None:
         """Every device event, in one place."""
@@ -406,13 +432,21 @@ class Service:
             case Lux(lux=lux):
                 self.behaviour.lux(event.ieee, lux, now)
                 self.notify()
+            case Battery(percent=percent) if self._kind(event.ieee) == "remote":
+                self.remote_memo.setdefault(event.ieee, {})["battery"] = percent
+                self.notify()
             case Battery(percent=percent):
                 self.behaviour.battery(event.ieee, percent)
                 self.notify()
+            case Button(action=action):
+                self._remote_pressed(event.ieee, action)
             case Seen():
-                device = self.settings.devices.get(event.ieee)
-                if device and device.kind == "motion" and not device.configured:
+                if self._sleepy(event.ieee) and not self.settings.devices[event.ieee].configured:
                     self._configure_soon(event.ieee)
+
+    def _kind(self, ieee: str) -> str | None:
+        device = self.settings.devices.get(ieee)
+        return device.kind if device else None
 
     def _log_motion(self, sensor: str, occupied: bool, actions, now: datetime, night: bool) -> None:
         name = self.settings.devices[sensor].name if sensor in self.settings.devices else sensor
@@ -633,6 +667,8 @@ class Service:
         if action == "auto":
             self._let_motion_control(ieee, controller)
             return
+        run = self.manager.active
+        in_sunrise = run is not None and run.light == ieee
         if ieee == self.settings.wakeup.light:
             await self.stop_sunrise("manual control")
         if action == "toggle":
@@ -651,9 +687,21 @@ class Service:
             return
         async with controller.lock:
             if action == "on":
-                await controller.on()
+                await self._manual_on(ieee, controller, full=in_sunrise)
             else:
                 await controller.off(**self._park(ieee, controller))
+
+    async def _manual_on(self, ieee: str, controller: LightController, full: bool) -> None:
+        """On at the last level and warmth set by hand (a lamp parked at its minimum would
+        otherwise come on there). During a sunrise "on" means "I'm up": full brightness."""
+        if full:
+            await controller.set_level(MAX_LEVEL, 0)
+            return
+        last = self.settings.light_settings(ieee).last_manual
+        await controller.set_level(last.level, 0)
+        if controller.caps.supports_ct:
+            await asyncio.sleep(MOTION_ON_CT_DELAY_S)
+            await controller.set_ct(kelvin_to_mired(last.kelvin))
 
     def _let_motion_control(self, ieee: str, controller: LightController) -> None:
         """Hands the lamp back to its motion sensor (a running sunrise is left alone)."""
@@ -664,6 +712,129 @@ class Service:
         LOGGER.info("Motion controls %s again (owner %s)", ieee, self.behaviour.lamp(ieee).owner)
         self._behaviour_saved()
         self._run_actions(actions)
+
+    # --- remotes -----------------------------------------------------------------------
+
+    def _remote_lamps(self, remote: str) -> list[str]:
+        binding = next((b for b in self.settings.remotes if b.remote == remote), None)
+        lights = binding.lights if binding else []
+        return [ieee for ieee in lights if ieee in self.registry.controllers]
+
+    def _remote_pressed(self, remote: str, action: str) -> None:
+        """A remote's button: every lamp it controls follows (manual wins)."""
+        memo = self.remote_memo.setdefault(remote, {})
+        memo["last_action"], memo["last_press"] = action, self.clock.now()
+        lamps = self._remote_lamps(remote)
+        name = self.settings.devices[remote].name if remote in self.settings.devices else remote
+        LOGGER.info("Remote %s: %s, lamps %s", name, action, lamps or "none")
+        self.notify()
+        if action in ("warmer_hold", "cooler_hold", "arrow_stop"):
+            self._stop_repeat(remote)
+        if not lamps:
+            return
+        if action == "toggle":
+            on = any(self.registry.controller(ieee).state.on for ieee in lamps)
+            action = "off" if on else "on"
+        if action in ("warmer_hold", "cooler_hold"):
+            self._repeats[remote] = asyncio.create_task(
+                self._repeat_warmth(lamps, warmer=action == "warmer_hold")
+            )
+            return
+        for ieee in lamps:
+            self._spawn_logged(self._remote_action(ieee, action), f"Remote {action} on {ieee}")
+
+    async def _remote_action(self, ieee: str, action: str) -> None:
+        controller = self.registry.controller(ieee)
+        on = controller.state.on is True
+        match action:
+            case "on" | "off":
+                await self.lamp_action(ieee, action)
+            case "brighter" | "dimmer" if on or action == "brighter":
+                level = (controller.state.level or MIN_LEVEL) if on else 0
+                step = STEP_LEVELS if action == "brighter" else -STEP_LEVELS
+                await self.lamp_action(ieee, "level", max(MIN_LEVEL, min(MAX_LEVEL, level + step)))
+            case "brighter_hold" | "dimmer_hold" if on or action == "brighter_hold":
+                if ieee == self.settings.wakeup.light:
+                    await self.stop_sunrise("manual control")
+                self.behaviour.manual(ieee, True, self.clock.now())
+                self._behaviour_saved()
+                async with controller.lock:
+                    await controller.move(action == "brighter_hold", DIM_RATE)
+            case "dim_stop":
+                async with controller.lock:
+                    await controller.stop()
+                    state = await controller.refresh()
+                if state.on and state.level:
+                    self._remember_manual(ieee, "level", state.level)
+                    self._save_settings()
+            case "warmer" | "cooler" if on:
+                await self._step_warmth(ieee, warmer=action == "warmer")
+
+    async def _step_warmth(self, ieee: str, warmer: bool) -> None:
+        controller = self.registry.controller(ieee)
+        if controller.state.on is not True or not controller.caps.supports_ct:
+            return
+        mireds = controller.state.mireds or controller.caps.min_mireds
+        mireds = controller.caps.clamp_mireds(
+            mireds + (WARMTH_STEP_MIREDS if warmer else -WARMTH_STEP_MIREDS)
+        )
+        await self.lamp_action(ieee, "kelvin", mired_to_kelvin(mireds))
+
+    async def _repeat_warmth(self, lamps: list[str], warmer: bool) -> None:
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(HOLD_LIMIT_S):
+                while True:
+                    for ieee in lamps:
+                        try:
+                            await self._step_warmth(ieee, warmer)
+                        except LightError as exc:
+                            LOGGER.warning("Warmth step on %s failed: %s", ieee, exc)
+                    self.notify()
+                    await asyncio.sleep(WARMTH_REPEAT_S)
+
+    def _stop_repeat(self, remote: str) -> None:
+        task = self._repeats.pop(remote, None)
+        if task is not None:
+            task.cancel()
+
+    def update_remote(self, remote: str, data: dict) -> None:
+        """Which lamps a remote controls."""
+        if self._kind(remote) != "remote":
+            raise SettingsError(f"{remote} is not a remote")
+        lights = [str(x) for x in data.get("lights", [])]
+        if not_lamps := [ieee for ieee in lights if ieee not in self.registry.controllers]:
+            raise SettingsError(f"Not lamps: {', '.join(not_lamps)}")
+        others = [b for b in self.settings.remotes if b.remote != remote]
+        self.settings.remotes = [*others, RemoteBinding(remote, list(dict.fromkeys(lights)))]
+        self._save_settings()
+
+    def remove_remote(self, remote: str) -> None:
+        self.settings.remotes = [b for b in self.settings.remotes if b.remote != remote]
+        self._save_settings()
+
+    def remote_list(self) -> list[dict]:
+        result = []
+        for ieee, device in self.settings.devices.items():
+            if device.kind != "remote":
+                continue
+            memo = self.remote_memo.get(ieee, {})
+            press = memo.get("last_press")
+            result.append(
+                {
+                    "ieee": ieee,
+                    "name": device.name,
+                    "room": device.room,
+                    "model": device.model,
+                    "configured": device.configured,
+                    "battery": memo.get("battery"),
+                    "last_action": memo.get("last_action"),
+                    "last_press": press.isoformat() if press else None,
+                    "lights": next(
+                        (b.lights for b in self.settings.remotes if b.remote == ieee), []
+                    ),
+                }
+            )
+        return result
 
     def _remember_manual(self, ieee: str, action: str, value: int) -> None:
         """The last level and warmth set by hand (a remote's "on" will restore them)."""
@@ -950,6 +1121,7 @@ class Service:
             "wakeup": {"light": wakeup.light, "alarms": alarms, "ramp": ramp},
             "night": asdict(settings.night),
             "sensors": self.sensor_list(),
+            "remotes": self.remote_list(),
             "sunrise": run.status(now) if run else None,
             "upcoming": [
                 {
@@ -978,13 +1150,20 @@ async def serve(
     fake: bool = False,
     fake_lamps: int = 2,
     fake_sensors: int = 0,
+    fake_remotes: int = 0,
 ) -> int:
     """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
     systemd can restart us: a process that hangs after an error never gets restarted."""
     from kotivalo.web import make_web_app
     from kotivalo.zigbee import NetworkNotFormedError, RadioError
 
-    service = Service(store, fake=fake, fake_lamps=fake_lamps, fake_sensors=fake_sensors)
+    service = Service(
+        store,
+        fake=fake,
+        fake_lamps=fake_lamps,
+        fake_sensors=fake_sensors,
+        fake_remotes=fake_remotes,
+    )
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, service.request_stop)

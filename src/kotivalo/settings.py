@@ -41,8 +41,11 @@ def _check_time(value: str, what: str) -> None:
 
 
 def default_name(model: str | None, ieee: str) -> str:
-    """A name for a device the user has not named yet, e.g. 'FLOALT panel WS 60x60 e52c'."""
-    return f"{model or 'Device'} {ieee.replace(':', '')[-4:]}"
+    """A name for a device the user has not named yet, e.g. 'FLOALT panel WS 60x60 e52c'
+    or 'STYRBAR 1a2b' (the box name rather than a remote's model id)."""
+    from kotivalo.remotes import PRODUCT_NAMES
+
+    return f"{PRODUCT_NAMES.get(model or '', model) or 'Device'} {ieee.replace(':', '')[-4:]}"
 
 
 def is_fake(ieee: str | None) -> bool:

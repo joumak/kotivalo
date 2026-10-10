@@ -140,6 +140,16 @@ async def delete_motion(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def put_remote(request: web.Request) -> web.Response:
+    service_of(request).update_remote(request.match_info["ieee"], await request.json())
+    return ok(request)
+
+
+async def delete_remote(request: web.Request) -> web.Response:
+    service_of(request).remove_remote(request.match_info["ieee"])
+    return ok(request)
+
+
 async def put_night(request: web.Request) -> web.Response:
     service_of(request).update_night(await request.json())
     return ok(request)
@@ -173,7 +183,7 @@ async def post_permit(request: web.Request) -> web.Response:
 
 async def post_fake_event(request: web.Request) -> web.Response:
     """`serve --fake` only: inject a sensor event, for UI development and tests."""
-    from kotivalo.events import Battery, Lux, Motion
+    from kotivalo.events import Battery, Button, Lux, Motion
 
     body = await request.json()
     ieee, value = str(body["ieee"]), body["value"]
@@ -181,6 +191,7 @@ async def post_fake_event(request: web.Request) -> web.Response:
         "motion": lambda: Motion(ieee, bool(value)),
         "lux": lambda: Lux(ieee, float(value)),
         "battery": lambda: Battery(ieee, float(value)),
+        "button": lambda: Button(ieee, str(value)),
     }
     service_of(request).events.put_nowait(make[body["type"]]())
     await asyncio.sleep(0.2)  # let it be handled before answering
@@ -202,6 +213,8 @@ def make_web_app(service) -> web.Application:
     router.add_put("/api/night", put_night)
     router.add_put("/api/motion/{ieee}", put_motion)
     router.add_delete("/api/motion/{ieee}", delete_motion)
+    router.add_put("/api/remotes/{ieee}", put_remote)
+    router.add_delete("/api/remotes/{ieee}", delete_remote)
     router.add_post("/api/sunrise/test", post_test)
     router.add_post("/api/sunrise/stop", post_stop)
     router.add_post("/api/skip", post_skip)

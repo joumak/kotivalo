@@ -117,6 +117,30 @@ export const fi: Messages = {
     save: 'Tallenna',
     notConfigured: 'Asetetaan: liiku tunnistimen edessä, niin se herää.',
   },
+  remote: {
+    settings: (name) => `${name}: valot`,
+    lamps: 'Valot, joita se ohjaa',
+    noLamps: 'Valitse valot, joita sen painikkeet ohjaavat.',
+    lastPress: (action, relative) => `Painettu ${relative}: ${action}`,
+    notConfigured: 'Ei vielä käytössä: liitä uudelleen painamalla liitospainiketta 4 kertaa valon lähellä.',
+    legend: 'Päälle ja pois ohjaavat valoja (viimeksi käsin asetettu kirkkaus ja sävy). Pitämällä himmentää. Nuolet säätävät sävyä.',
+    save: 'Tallenna',
+    actions: {
+      on: 'Päälle',
+      off: 'Pois',
+      toggle: 'Päälle/pois',
+      brighter: 'Kirkkaammaksi',
+      dimmer: 'Himmeämmäksi',
+      brighter_hold: 'Kirkkaammaksi (pito)',
+      dimmer_hold: 'Himmeämmäksi (pito)',
+      dim_stop: 'Päästetty',
+      warmer: 'Lämpimämmäksi',
+      cooler: 'Viileämmäksi',
+      warmer_hold: 'Lämpimämmäksi (pito)',
+      cooler_hold: 'Viileämmäksi (pito)',
+      arrow_stop: 'Päästetty',
+    },
+  },
   devices: {
     kinds: { light: 'Valot', motion: 'Liiketunnistimet', remote: 'Kaukosäätimet', other: 'Muut laitteet' },
     add: 'Lisää laite',
@@ -124,12 +148,15 @@ export const fi: Messages = {
     addWhat: 'Mitä olet lisäämässä?',
     addLamp: 'IKEA-valon',
     addSensor: 'Liiketunnistimen (VALLHORN)',
+    addRemote: 'Kaukosäätimen (STYRBAR, RODRET, TRÅDFRI)',
     startPairing: 'Aloita liittäminen',
     close: 'Sulje',
     sensorHelp:
       'Paina tunnistimen liitospainiketta 4 kertaa nopeasti, 5 sekunnin sisällä. Punainen valo vilkkuu ja sammuu, kun tunnistin on liitetty. Pidä se liittämisen ajan lähellä valoa.',
     sensorBatteries:
       'Käytä ladattavia paristoja (IKEA LADDA). Tavalliset 1,5 V:n paristot saavat tunnistimen näkemään liikettä, jota ei ole.',
+    remoteHelp:
+      'Pidä kaukosäädin valon vieressä. Paina sen liitospainiketta 4 kertaa nopeasti, 5 sekunnin sisällä: useimmissa se on takana kannen alla. Paina sitten jotain painiketta muutaman sekunnin välein, kunnes säädin näkyy alla, jotta se pysyy hereillä asetusten ajan.',
     pairing: (seconds) => `Liittäminen auki, ${seconds} s jäljellä`,
     stopPairing: 'Lopeta liittäminen',
     pairHelp:

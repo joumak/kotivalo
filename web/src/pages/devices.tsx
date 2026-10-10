@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { useActions } from '@/api/actions'
 import { useLive } from '@/api/live'
-import type { DeviceInfo, DeviceKind, MotionRule, Profile, Sensor, Snapshot } from '@/api/types'
+import type { DeviceInfo, DeviceKind, MotionRule, Profile, Remote, Sensor, Snapshot } from '@/api/types'
 import { PageTitle } from '@/components/shell'
 import {
   AlertDialog,
@@ -44,11 +44,13 @@ export function DevicesPage() {
   const [renaming, setRenaming] = useState<DeviceInfo | null>(null)
   const [removing, setRemoving] = useState<DeviceInfo | null>(null)
   const [motion, setMotion] = useState<Sensor | null>(null)
+  const [remote, setRemote] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   if (!snapshot) return null
 
   const rooms = [...new Set(snapshot.devices.map((d) => d.room).filter(Boolean))].sort()
   const editing = motion && snapshot.sensors.find((s) => s.ieee === motion.ieee)
+  const editingRemote = remote && snapshot.remotes.find((r) => r.ieee === remote)
   return (
     <>
       <PageTitle action={<Button onClick={() => setAdding(true)}>{t.devices.add}</Button>}>{t.nav.devices}</PageTitle>
@@ -69,9 +71,11 @@ export function DevicesPage() {
                       key={device.ieee}
                       device={device}
                       sensor={snapshot.sensors.find((s) => s.ieee === device.ieee)}
+                      remote={snapshot.remotes.find((r) => r.ieee === device.ieee)}
                       onRename={() => setRenaming(device)}
                       onRemove={() => setRemoving(device)}
                       onMotion={(sensor) => setMotion(sensor)}
+                      onRemote={(r) => setRemote(r.ieee)}
                     />
                   ))}
               </ul>
@@ -83,6 +87,7 @@ export function DevicesPage() {
       {renaming && <RenameDialog device={renaming} rooms={rooms} onClose={() => setRenaming(null)} />}
       {removing && <RemoveDialog device={removing} onClose={() => setRemoving(null)} />}
       {editing && <MotionDialog sensor={editing} snapshot={snapshot} onClose={() => setMotion(null)} />}
+      {editingRemote && <RemoteDialog remote={editingRemote} snapshot={snapshot} onClose={() => setRemote(null)} />}
     </>
   )
 }
@@ -117,7 +122,9 @@ function AddDeviceDialog({ snapshot, onClose }: { snapshot: Snapshot; onClose: (
   const t = useT()
   const actions = useActions()
   const left = pairingLeft(snapshot, useNow(1000))
-  const [kind, setKind] = useState<'light' | 'motion' | null>(null)
+  const [kind, setKind] = useState<'light' | 'motion' | 'remote' | null>(null)
+  const choices = { light: t.devices.addLamp, motion: t.devices.addSensor, remote: t.devices.addRemote }
+  const help = { light: t.devices.pairHelp, motion: t.devices.sensorHelp, remote: t.devices.remoteHelp }
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-lg">
@@ -126,8 +133,8 @@ function AddDeviceDialog({ snapshot, onClose }: { snapshot: Snapshot; onClose: (
           <DialogDescription>{kind === null ? t.devices.addWhat : null}</DialogDescription>
         </DialogHeader>
         {kind === null ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(['light', 'motion'] as const).map((choice) => {
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(['light', 'motion', 'remote'] as const).map((choice) => {
               const Icon = ICONS[choice]
               return (
                 <button
@@ -137,14 +144,14 @@ function AddDeviceDialog({ snapshot, onClose }: { snapshot: Snapshot; onClose: (
                   className="flex min-h-28 flex-col items-start justify-between gap-3 rounded-2xl border bg-card p-4 text-left text-base transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/60 focus-visible:outline-none"
                 >
                   <Icon className="size-6 text-ember" />
-                  {choice === 'light' ? t.devices.addLamp : t.devices.addSensor}
+                  {choices[choice]}
                 </button>
               )
             })}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <p className="max-w-prose">{kind === 'light' ? t.devices.pairHelp : t.devices.sensorHelp}</p>
+            <p className="max-w-prose">{help[kind]}</p>
             {kind === 'motion' && <p className="max-w-prose text-sm text-muted-foreground">{t.devices.sensorBatteries}</p>}
             {left > 0 && (
               <div role="status" className="rounded-2xl border border-ember/40 bg-ember/10 px-4 py-3">
@@ -175,12 +182,14 @@ function AddDeviceDialog({ snapshot, onClose }: { snapshot: Snapshot; onClose: (
 interface DeviceRowProps {
   device: DeviceInfo
   sensor?: Sensor
+  remote?: Remote
   onRename: () => void
   onRemove: () => void
   onMotion: (sensor: Sensor) => void
+  onRemote: (remote: Remote) => void
 }
 
-function DeviceRow({ device, sensor, onRename, onRemove, onMotion }: DeviceRowProps) {
+function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRemote }: DeviceRowProps) {
   const t = useT()
   const actions = useActions()
   const now = useNow(60000)
@@ -190,14 +199,30 @@ function DeviceRow({ device, sensor, onRename, onRemove, onMotion }: DeviceRowPr
     : device.last_seen
       ? t.devices.seen(t.time.ago(Math.round((now.getTime() / 1000 - device.last_seen) / 60)))
       : null
+  const minutesSince = (iso: string) => Math.max(0, Math.round((now.getTime() - Date.parse(iso)) / 60000))
   const details = sensor
     ? [
         sensor.occupied ? t.sensor.occupied : t.sensor.empty,
         sensor.lux !== null ? t.sensor.lux(sensor.lux) : null,
         sensor.battery !== null ? t.sensor.battery(sensor.battery) : null,
-        sensor.configured ? null : t.sensor.notConfigured,
       ]
-    : [device.wakeup ? t.lamp.wakeupLamp : null, seen]
+    : remote
+      ? [
+          remote.last_action && remote.last_press
+            ? t.remote.lastPress(t.remote.actions[remote.last_action], t.time.ago(minutesSince(remote.last_press)))
+            : seen,
+          remote.battery !== null ? t.sensor.battery(remote.battery) : null,
+        ]
+      : [device.wakeup ? t.lamp.wakeupLamp : null, seen]
+  // What to do next, on a line of its own.
+  const hint =
+    sensor && !sensor.configured
+      ? t.sensor.notConfigured
+      : remote && !remote.configured
+        ? t.remote.notConfigured
+        : remote && remote.lights.length === 0
+          ? t.remote.noLamps
+          : null
   return (
     <li className="flex items-center gap-4 px-4 py-3">
       <Icon
@@ -209,6 +234,7 @@ function DeviceRow({ device, sensor, onRename, onRemove, onMotion }: DeviceRowPr
       <div className="min-w-0 grow">
         <p className="truncate font-medium">{device.name}</p>
         <p className="text-sm text-muted-foreground">{[device.room, ...details].filter(Boolean).join(', ')}</p>
+        {hint && <p className="mt-1 text-sm text-ember">{hint}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {sensor && (
@@ -218,6 +244,17 @@ function DeviceRow({ device, sensor, onRename, onRemove, onMotion }: DeviceRowPr
             aria-label={t.sensor.settings(device.name)}
             title={t.sensor.settings(device.name)}
             onClick={() => onMotion(sensor)}
+          >
+            <SlidersHorizontal />
+          </Button>
+        )}
+        {remote && (
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={t.remote.settings(device.name)}
+            title={t.remote.settings(device.name)}
+            onClick={() => onRemote(remote)}
           >
             <SlidersHorizontal />
           </Button>
@@ -241,6 +278,50 @@ function DeviceRow({ device, sensor, onRename, onRemove, onMotion }: DeviceRowPr
         </Button>
       </div>
     </li>
+  )
+}
+
+/** Which lamps a remote's buttons control. */
+function RemoteDialog({ remote, snapshot, onClose }: { remote: Remote; snapshot: Snapshot; onClose: () => void }) {
+  const t = useT()
+  const actions = useActions()
+  const [lights, setLights] = useState<string[]>(remote.lights)
+  const save = async () => {
+    if (await actions.remote(remote.ieee, lights)) onClose()
+  }
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t.remote.settings(remote.name)}</DialogTitle>
+          <DialogDescription>{t.remote.legend}</DialogDescription>
+        </DialogHeader>
+        <fieldset className="flex flex-col gap-1">
+          <legend className="mb-2 text-sm text-muted-foreground">{t.remote.lamps}</legend>
+          {snapshot.lights.map((lamp) => {
+            const id = `remote-lamp-${lamp.ieee}`
+            return (
+              <div key={lamp.ieee} className="flex items-center justify-between gap-4 py-1.5">
+                <Label htmlFor={id} className="text-base">
+                  {lamp.name}
+                </Label>
+                <Switch
+                  id={id}
+                  checked={lights.includes(lamp.ieee)}
+                  onCheckedChange={(on) => setLights(on ? [...lights, lamp.ieee] : lights.filter((x) => x !== lamp.ieee))}
+                />
+              </div>
+            )
+          })}
+        </fieldset>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t.wakeup.cancel}
+          </Button>
+          <Button onClick={save}>{t.remote.save}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

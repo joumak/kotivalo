@@ -67,6 +67,33 @@ export interface Sensor {
   rule: MotionRule | null
 }
 
+export type RemoteAction =
+  | 'on'
+  | 'off'
+  | 'toggle'
+  | 'brighter'
+  | 'dimmer'
+  | 'brighter_hold'
+  | 'dimmer_hold'
+  | 'dim_stop'
+  | 'warmer'
+  | 'cooler'
+  | 'warmer_hold'
+  | 'cooler_hold'
+  | 'arrow_stop'
+
+export interface Remote {
+  ieee: string
+  name: string
+  room: string
+  model: string | null
+  configured: boolean // its buttons are bound to the Pi
+  battery: number | null // known after its first report since the service started
+  last_action: RemoteAction | null
+  last_press: string | null // ISO
+  lights: string[] // the lamps it controls
+}
+
 export interface Alarm {
   enabled: boolean
   time: string // HH:MM, local
@@ -133,6 +160,7 @@ export interface Snapshot {
   wakeup: { light: string | null; alarms: Alarm[]; ramp: Ramp }
   night: { start: string; end: string }
   sensors: Sensor[]
+  remotes: Remote[]
   sunrise: SunriseRun | null
   upcoming: Upcoming[]
   last_run: RunRecord | null

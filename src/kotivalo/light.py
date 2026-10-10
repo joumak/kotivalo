@@ -50,7 +50,10 @@ class Light(Protocol):
         """Switch off without a transition (IKEA can stay on after a transitioned off)."""
 
     async def stop(self) -> None:
-        """Abort any running transition."""
+        """Abort any running transition or move."""
+
+    async def move(self, up: bool, rate: int) -> None:
+        """Dim up or down at `rate` levels per second until stop() (a held remote button)."""
 
     async def read_state(self) -> LightState: ...
 
@@ -92,6 +95,12 @@ class FakeLight:
 
     async def stop(self) -> None:
         self._record("stop")
+
+    async def move(self, up: bool, rate: int) -> None:
+        self._record("move", up, rate)
+        # No time passes in a fake: a move goes all the way.
+        self.state.on = True if up else self.state.on
+        self.state.level = MAX_LEVEL if up else MIN_LEVEL
 
     async def read_state(self) -> LightState:
         if self.fail:
@@ -213,6 +222,13 @@ class LightController:
     async def stop(self) -> None:
         light = self._require()
         await self._run(light.stop)
+
+    async def move(self, up: bool, rate: int) -> None:
+        """Start dimming; the state is unknown until stop() and a refresh()."""
+        light = self._require()
+        await self._run(lambda: light.move(up, rate))
+        if up:
+            self.state.on = True
 
     async def refresh(self) -> LightState:
         """Read the lamp's actual state (counts toward reachability, not as a command)."""

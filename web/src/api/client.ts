@@ -58,6 +58,7 @@ export const api = {
   removeDevice: (ieee: string) => request('DELETE', `/api/devices/${ieee}`),
   motion: (sensor: string, rule: Omit<MotionRule, 'sensor'>) => request('PUT', `/api/motion/${sensor}`, rule),
   removeMotion: (sensor: string) => request('DELETE', `/api/motion/${sensor}`),
+  remote: (remote: string, lights: string[]) => request('PUT', `/api/remotes/${remote}`, { lights }),
   skip: (key: string, skip: boolean) => request('POST', '/api/skip', { key, skip }),
   testSunrise: (minutes: number) => request('POST', '/api/sunrise/test', { minutes }),
   stopSunrise: () => request('POST', '/api/sunrise/stop', {}),

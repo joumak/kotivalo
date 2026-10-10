@@ -170,3 +170,54 @@ def test_illuminance_conversion():
     assert illuminance_to_lux(0) == 0.0  # too dark to measure
     assert illuminance_to_lux(1) == 1.0
     assert illuminance_to_lux(14772) == 30.0
+
+
+REMOTE = "99:88:77:66:55:44:33:22"
+REMOTE_NWK = 0x3C3C
+
+
+@pytest.fixture
+def styrbar(app):
+    """A STYRBAR as it describes itself: no Scenes cluster, though its arrows use it."""
+    device = app.add_device(t.EUI64.convert(REMOTE), REMOTE_NWK)
+    device.model, device.manufacturer = "Remote Control N2", "IKEA of Sweden"
+    ep = device.add_endpoint(1)
+    ep.profile_id = 0x0104
+    for cluster_id in (0x0000, 0x0001, 0x0003, 0x0020, 0x1000):
+        ep.add_input_cluster(cluster_id)
+    for cluster_id in (0x0003, 0x0004, 0x0006, 0x0008, 0x0019, 0x1000):
+        ep.add_output_cluster(cluster_id)
+    ep.status = zigpy.endpoint.Status.ZDO_INIT
+    device.status = zigpy.device.Status.ENDPOINTS_INIT
+    return app
+
+
+def remote_packet(cluster: int, data: str) -> t.ZigbeePacket:
+    p = packet(cluster, data)
+    return p.replace(src=t.AddrModeAddress(addr_mode=t.AddrMode.NWK, address=REMOTE_NWK))
+
+
+async def test_remote_buttons_become_button_events(styrbar):
+    from kotivalo.events import Button
+
+    queue = asyncio.Queue()
+    bridge = EventBridge(queue)
+    styrbar.add_listener(bridge)
+    styrbar.packet_received(remote_packet(0x0006, "011001"))  # on
+    styrbar.packet_received(remote_packet(0x0006, "011001"))  # the same frame again
+    styrbar.packet_received(remote_packet(0x0008, "0111050053"))  # hold up
+    styrbar.packet_received(remote_packet(0x0008, "011207"))  # release
+    styrbar.packet_received(remote_packet(0x0005, "057c11130701010d00"))  # left arrow
+    styrbar.packet_received(remote_packet(0x0006, "18140a00001001"))  # a report: not a button
+    buttons = [e for e in await drain(queue) if isinstance(e, Button)]
+    assert [b.action for b in buttons] == ["on", "brighter_hold", "dim_stop", "warmer"]
+    assert {b.ieee for b in buttons} == {REMOTE}
+
+
+async def test_a_lamp_sending_commands_is_not_a_remote(app):
+    from kotivalo.events import Button
+
+    queue = asyncio.Queue()
+    app.add_listener(EventBridge(queue))
+    app.packet_received(packet(0x0006, "011501"))
+    assert not [e for e in await drain(queue) if isinstance(e, Button)]

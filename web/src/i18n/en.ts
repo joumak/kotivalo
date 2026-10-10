@@ -1,5 +1,7 @@
 // English UI text. `fi.ts` must provide every key (the type checker enforces it).
 
+import type { RemoteAction } from '@/api/types'
+
 const ago = (minutes: number) =>
   minutes < 1
     ? 'just now'
@@ -120,6 +122,31 @@ export const en = {
     save: 'Save',
     notConfigured: 'Setting up: move in front of the sensor to wake it.',
   },
+  remote: {
+    settings: (name: string) => `${name}: lamps`,
+    lamps: 'Lamps it controls',
+    noLamps: 'Choose the lamps its buttons control.',
+    lastPress: (action: string, relative: string) => `Pressed ${relative}: ${action}`,
+    notConfigured: 'Not set up yet: press its pairing button 4 times near a lamp to pair it again.',
+    legend:
+      'On and off switch the lamps (the last brightness and warmth set by hand). Hold to dim. The arrows change warmth.',
+    save: 'Save',
+    actions: {
+      on: 'On',
+      off: 'Off',
+      toggle: 'On/off',
+      brighter: 'Brighter',
+      dimmer: 'Dimmer',
+      brighter_hold: 'Brighter (held)',
+      dimmer_hold: 'Dimmer (held)',
+      dim_stop: 'Released',
+      warmer: 'Warmer',
+      cooler: 'Cooler',
+      warmer_hold: 'Warmer (held)',
+      cooler_hold: 'Cooler (held)',
+      arrow_stop: 'Released',
+    } satisfies Record<RemoteAction, string>,
+  },
   devices: {
     kinds: { light: 'Lamps', motion: 'Motion sensors', remote: 'Remotes', other: 'Other devices' },
     add: 'Add a device',
@@ -127,12 +154,15 @@ export const en = {
     addWhat: 'What are you adding?',
     addLamp: 'An IKEA lamp',
     addSensor: 'A motion sensor (VALLHORN)',
+    addRemote: 'A remote (STYRBAR, RODRET, TRÅDFRI)',
     startPairing: 'Start pairing',
     close: 'Close',
     sensorHelp:
       'Press the pairing button on the sensor 4 times quickly, within 5 seconds. Its red light flashes, then goes out when it has joined. Keep it near a lamp while pairing.',
     sensorBatteries:
       'Use rechargeable batteries (IKEA LADDA). Ordinary 1.5 V batteries make the sensor see motion that is not there.',
+    remoteHelp:
+      'Hold the remote next to a lamp. Press its pairing button 4 times quickly, within 5 seconds: on most remotes it is on the back, under the cover. Then press any button every few seconds until it appears below, so it stays awake while it is set up.',
     pairing: (seconds: number) => `Pairing open, ${seconds} s left`,
     stopPairing: 'Stop pairing',
     pairHelp:

@@ -8,6 +8,7 @@ import fcntl
 import functools
 import importlib
 import logging
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -20,11 +21,13 @@ from zigpy.zcl import foundation
 from zigpy.zcl.clusters.general import LevelControl, OnOff, StartUpOnOff
 from zigpy.zcl.clusters.lighting import Color, ColorCapabilities
 from zigpy.zcl.helpers import ReportingConfig
+from zigpy.zdo import types as zdo_types
 from zigpy.zdo.types import Status as ZdoStatus
 
-from kotivalo.events import Announce, Battery, Event, LightReport, Lux, Motion, Seen
+from kotivalo.events import Announce, Battery, Button, Event, LightReport, Lux, Motion, Seen
 from kotivalo.light import LightCaps, LightError, LightState
 from kotivalo.registry import Discovered
+from kotivalo.remotes import BUTTON_CLUSTERS, Decoder
 from kotivalo.settings import RadioSettings
 
 LOGGER = logging.getLogger(__name__)
@@ -205,6 +208,8 @@ SENSOR_REPORTING = {
     ILLUMINANCE_CLUSTER: {"measured_value": (10, 600, 500)},  # ~12 % change in lux
     POWER_CLUSTER: {"battery_percentage_remaining": (3600, 21600, 2)},
 }
+# Remotes: battery only (their buttons are commands, not attributes).
+REMOTE_REPORTING = {POWER_CLUSTER: SENSOR_REPORTING[POWER_CLUSTER]}
 CONFIGURE_TIMEOUT_S = 15
 SLEEPY_TIMEOUT_S = 30  # a sleepy device answers only while awake
 ZDO_DEVICE_ANNOUNCE = 0x0013
@@ -233,6 +238,45 @@ async def configure_sensor(device: zigpy.device.Device) -> bool:
         if c in getattr(ep, "in_clusters", {})
     ]
     return bool(clusters) and await _configure(device, clusters, SENSOR_REPORTING, SLEEPY_TIMEOUT_S)
+
+
+async def configure_remote(device: zigpy.device.Device) -> bool:
+    """Bind a remote's button commands (On/Off, Level and IKEA's arrow Scenes) to the
+    coordinator, so presses come to us instead of to a group, and ask for battery
+    reports. Scenes is bound even when the descriptor doesn't list it (STYRBAR sends
+    its arrows there anyway). The remote sleeps: call this while it is awake.
+    Returns True when On/Off was bound."""
+    app = device.application
+    endpoint = next((e for i, e in device.endpoints.items() if i != 0), None)
+    if endpoint is None:
+        return False
+    on_off_bound = False
+    for cluster_id in BUTTON_CLUSTERS:
+        target = zdo_types.MultiAddress()
+        target.addrmode = 3
+        target.ieee = app.state.node_info.ieee
+        target.endpoint = app.get_endpoint_id(cluster_id, False)
+        try:
+            async with asyncio.timeout(SLEEPY_TIMEOUT_S):
+                result = await device.zdo.Bind_req(
+                    device.ieee, endpoint.endpoint_id, cluster_id, target
+                )
+        except (zigpy.exceptions.ZigbeeException, TimeoutError) as exc:
+            LOGGER.warning(
+                "Binding remote %s cluster 0x%04X failed: %r", device.ieee, cluster_id, exc
+            )
+            continue
+        status = result[0] if result else None
+        LOGGER.info("Remote %s cluster 0x%04X bind: %s", device.ieee, cluster_id, status)
+        on_off_bound |= cluster_id == OnOff.cluster_id and status == ZdoStatus.SUCCESS
+    battery = [
+        e.in_clusters[POWER_CLUSTER]
+        for i, e in device.endpoints.items()
+        if i != 0 and POWER_CLUSTER in getattr(e, "in_clusters", {})
+    ]
+    if battery:
+        await _configure(device, battery[:1], REMOTE_REPORTING, SLEEPY_TIMEOUT_S)
+    return on_off_bound
 
 
 async def _configure(device, clusters, reporting: dict, timeout_s: float) -> bool:
@@ -283,10 +327,12 @@ class EventBridge:
     def __init__(self, queue: asyncio.Queue[Event]):
         self.queue = queue
         self._attached: set[int] = set()
+        self._buttons = Decoder()
 
     def attach(self, device: zigpy.device.Device) -> None:
         kind, _ = classify(device)
-        wanted = {"light": LAMP_REPORTING, "motion": SENSOR_REPORTING}.get(kind, {})
+        wanted = {"light": LAMP_REPORTING, "motion": SENSOR_REPORTING, "remote": REMOTE_REPORTING}
+        wanted = wanted.get(kind, {})
         endpoints = [e for i, e in device.endpoints.items() if i != 0]
         if kind == "light":
             endpoints = [light_endpoint(device)]
@@ -327,9 +373,17 @@ class EventBridge:
         try:
             if is_coordinator(device):
                 return
-            self._put(Seen(str(device.ieee)))
+            ieee = str(device.ieee)
+            self._put(Seen(ieee))
             if profile == 0 and cluster == ZDO_DEVICE_ANNOUNCE:
-                self._put(Announce(str(device.ieee)))
+                self._put(Announce(ieee))
+            elif cluster in BUTTON_CLUSTERS and classify(device)[0] == "remote":
+                action = self._buttons.decode(
+                    ieee, device.model, src_ep, cluster, bytes(data), time.monotonic()
+                )
+                LOGGER.info("Remote %s 0x%04X %s: %s", ieee, cluster, bytes(data).hex(), action)
+                if action is not None:
+                    self._put(Button(ieee, action))
         except Exception:  # noqa: BLE001
             LOGGER.exception("Bad message from %r", device)
 
@@ -417,6 +471,14 @@ class ZigbeeLight:
 
     async def stop(self) -> None:
         await self._send("stop", lambda ep: ep.level.stop())
+
+    async def move(self, up: bool, rate: int) -> None:
+        """Dim until stop(). Up switches an off lamp on; down stops at the lowest level
+        and never switches the lamp off."""
+        if up:
+            await self._send("move up", lambda ep: ep.level.move_with_on_off(0, rate))
+        else:
+            await self._send("move down", lambda ep: ep.level.move(1, rate))
 
     async def read_state(self) -> LightState:
         async def read(ep):

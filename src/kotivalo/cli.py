@@ -267,6 +267,7 @@ def cmd_serve(args, store: Store) -> None:
             fake=args.fake,
             fake_lamps=args.fake_lamps,
             fake_sensors=args.fake_sensors,
+            fake_remotes=args.fake_remotes,
         )
     )
     leftover = [t.name for t in threading.enumerate() if t is not threading.main_thread()]
@@ -289,6 +290,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--fake", action="store_true", help="use in-memory lamps, no radio")
     p.add_argument("--fake-lamps", type=int, default=2, help="how many fake lamps (with --fake)")
     p.add_argument("--fake-sensors", type=int, default=1, help="fake motion sensors (with --fake)")
+    p.add_argument("--fake-remotes", type=int, default=1, help="fake remotes (with --fake)")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("xbee-config", help="one-time: set the XBee to AP=2 and 57600 baud")

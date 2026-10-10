@@ -17,6 +17,8 @@ control the light from a phone-friendly web page on the Pi.
 
 Web UI: `http://wakeup-light.local:8080`, or by IP (currently `http://192.168.1.174:8080`) on phones that do not resolve `.local` names.
 
+Planned work and known issues: [docs/ROADMAP.md](docs/ROADMAP.md). Notes for working on the code: [CLAUDE.md](CLAUDE.md).
+
 ## How the sunrise works
 
 - **Brightness:** `level = 2 + 252 · p^2.5`, so it rises slowly at first. The minimum is level 2, because level 1 switches a FLOALT off.

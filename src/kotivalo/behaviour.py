@@ -128,10 +128,12 @@ class Behaviour:
                 elif lamp.owner == "motion":
                     lamp.off_at = None
             else:
-                if lamp.owner == "motion":
-                    lamp.off_at = now + after
+                # Counted from when the room became empty: the sensor repeats "empty" every
+                # few minutes as a keep-alive, and that must not keep postponing the off.
+                if lamp.owner == "motion" and lamp.off_at is None:
+                    lamp.off_at = memo.empty_since + after
                 if lamp.suppressed:
-                    lamp.suppressed, lamp.suppressed_until = False, now + after
+                    lamp.suppressed, lamp.suppressed_until = False, memo.empty_since + after
         return actions
 
     def lux(self, sensor: str, lux: float, now: datetime) -> None:

@@ -259,3 +259,23 @@ def test_automatic_needs_a_rule_and_leaves_a_sunrise_alone():
     b.sunrise_started(LAMP)
     assert b.automatic(LAMP, lamp_on=True, now=at(1), night=False) == []
     assert b.lamp(LAMP).owner == "sunrise"
+
+
+def test_repeated_empty_reports_do_not_postpone_the_off():
+    # The VALLHORN repeats "empty" every 5 minutes; with a 5-minute off time each repeat
+    # used to restart the timer just before it fired, so the lamp never went off.
+    b = make()
+    b.motion(SENSOR, True, at(0), night=False)
+    b.motion(SENSOR, False, at(1), night=False)
+    b.motion(SENSOR, False, at(5.9), night=False)  # keep-alive
+    assert b.lamp(LAMP).off_at == at(6)
+    assert b.tick(at(6)) == [SwitchOff(LAMP)]
+
+
+def test_repeated_empty_reports_do_not_extend_a_manual_off_pause():
+    b = make()
+    b.motion(SENSOR, True, at(0), night=False)
+    b.manual(LAMP, False, at(1))
+    b.motion(SENSOR, False, at(2), night=False)
+    b.motion(SENSOR, False, at(6.9), night=False)  # keep-alive
+    assert not b.motion_paused(LAMP, at(7.1))

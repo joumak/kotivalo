@@ -12,9 +12,9 @@ LOGGER = logging.getLogger(__name__)
 
 MIN_LEVEL = 2  # IKEA FLOALT turns off at level 1
 MAX_LEVEL = 254
-OFF_FADE_S = 0.8  # a switch-off first fades down this long
-FADE_SETTLE_S = 0.15  # after a fade, before the next command (which would cut it short)
-WARM_TO_OFF_S = 0.05  # the lamp has acked the warmth: off right after, so the step hardly shows
+OFF_FADE_S = 0.5  # a switch-off first fades down this long
+FADE_SETTLE_S = 0.1  # after a fade, before the next command (which would cut it short)
+WARM_TO_OFF_S = 0.0  # the lamp has acked the warmth: off right after, so the step hardly shows
 
 
 class LightError(Exception):

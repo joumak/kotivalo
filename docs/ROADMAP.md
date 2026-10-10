@@ -101,7 +101,7 @@ The code talks to zigpy's generic API, so swapping is a settings change plus re-
 ### 5. Flash-free switch-on: not possible on this firmware
 
 **Today:**
-- Every off fades out over about 0.8 s to minimum, then turns warm at that dim level, then switches off (since 2026-10-10; before, it jumped to warm and dim).
+- Every off fades out over about 0.5 s to minimum, then turns warm at that dim level, then switches off (since 2026-10-10; before, it jumped to warm and dim).
 - "On" sets the remembered brightness, then the warmth 0.5 s later. That shows as a brief warm moment.
 
 **Tested on panel 2 (firmware 1.2.217) on 2026-10-10, with the lamp off:**

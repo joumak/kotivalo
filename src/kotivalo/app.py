@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
@@ -13,6 +14,7 @@ from aiohttp import web
 
 from kotivalo import systemd
 from kotivalo.clock import Clock, ntp_synchronized
+from kotivalo.events import Announce, Event, LightReport
 from kotivalo.light import FakeLight, LatestWins, LightController, LightError
 from kotivalo.ramp import (
     KELVIN_STEP,
@@ -48,6 +50,16 @@ REFRESH_TIMEOUT_S = 12
 TICK_ACTIVE_S = 5  # live-update cadence while a sunrise or pairing runs
 TICK_IDLE_S = 30
 MAX_NAME_LEN = 40
+POLL_TICK_S = 5
+POLL_INTERVAL_S = 60
+POLL_MAX_S = 600
+ANNOUNCE_SETTLE_S = 2
+
+
+def poll_delay(failures: int) -> float:
+    """Seconds until the next poll: every minute, backing off to 10 min while a lamp
+    does not answer (each poll of a missing lamp costs route discovery on the XBee)."""
+    return float(min(POLL_MAX_S, POLL_INTERVAL_S * 2**failures))
 
 
 def fake_devices(lamps: int) -> list[Discovered]:
@@ -87,6 +99,7 @@ class Service:
         self._fake_lights: dict[str, FakeLight] = {}
         self._live: dict[str, LatestWins] = {}
         self._changed = asyncio.Event()
+        self.events: asyncio.Queue[Event] = asyncio.Queue()
 
     # --- lifecycle ---------------------------------------------------------------
 
@@ -111,9 +124,16 @@ class Service:
         if self.fake:
             found = fake_devices(self.fake_lamps)
         else:
-            from kotivalo.zigbee import DeviceEvents, discover, start_app
+            from kotivalo.zigbee import DeviceEvents, EventBridge, discover, start_app
 
-            self.zigbee = await start_app(self.settings.radio, self.store.db_path)
+            def attach(app) -> None:  # before the radio starts: no report is missed
+                bridge = EventBridge(self.events)
+                bridge.attach_all(app)
+                app.add_listener(bridge)
+
+            self.zigbee = await start_app(
+                self.settings.radio, self.store.db_path, on_created=attach
+            )
             self.zigbee.add_listener(DeviceEvents(self._device_event))
             found = discover(self.zigbee)
             self._spawn(self._radio_watch())
@@ -126,6 +146,10 @@ class Service:
         self._spawn(self.scheduler.run_forever())
         self._spawn(self._clock_watch())
         self._spawn(self._ticker())
+        self._spawn(self._consume_events())
+        self._spawn(self._poll_lamps())
+        if self.zigbee is not None:
+            self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
 
     async def stop(self) -> None:
         await self.manager.shutdown()
@@ -222,7 +246,7 @@ class Service:
 
     async def _clock_watch(self) -> None:
         while True:
-            synced = await ntp_synchronized()
+            synced = True if self.fake else await ntp_synchronized()
             if synced != self.clock_synced:
                 self.clock_synced = synced
                 self.notify()
@@ -264,7 +288,7 @@ class Service:
 
     async def _setup_lamp(self, ieee: str) -> None:
         """A lamp joined: read its capabilities, set its power-on behaviour, adopt it as
-        the wake-up lamp if there is none."""
+        the wake-up lamp if there is none, and ask it for reports."""
         controller = self.registry.controller(ieee)
         caps = await controller.light.read_caps()
         self.registry.set_caps(ieee, caps)
@@ -272,10 +296,92 @@ class Service:
             await self.set_wakeup_light(ieee)
         else:
             await self._apply_power_on(ieee)
+        self.settings.devices[ieee].configured = False  # a (re)joined lamp lost its bindings
         self._save_settings()
+        await self._configure_lamp(ieee)
         with contextlib.suppress(LightError):
             async with controller.lock:
                 await controller.refresh()
+
+    async def _configure_lamps(self) -> None:
+        """Ask every lamp not yet set up for reports. Lamps are routers, always awake."""
+        for ieee in self.registry.light_ieees():
+            if not self.settings.devices[ieee].configured:
+                await self._configure_lamp(ieee)
+
+    async def _configure_lamp(self, ieee: str) -> None:
+        import zigpy.types
+
+        from kotivalo.zigbee import configure_lamp
+
+        if self.zigbee is None:
+            return
+        try:
+            device = self.zigbee.get_device(ieee=zigpy.types.EUI64.convert(ieee))
+        except KeyError:
+            return
+        if await configure_lamp(device, self.settings.devices[ieee].endpoint):
+            self.settings.devices[ieee].configured = True
+            self._save_settings()
+
+    async def _consume_events(self) -> None:
+        """Every device event, in one place."""
+        while True:
+            event = await self.events.get()
+            try:
+                self._handle_event(event)
+            except Exception:
+                LOGGER.exception("Handling %r failed", event)
+
+    def _handle_event(self, event: Event) -> None:
+        controller = self.registry.controllers.get(event.ieee)
+        if controller is None:
+            return
+        match event:
+            case LightReport(attribute=attribute, value=value):
+                if controller.apply_report(attribute, value):
+                    self.notify()
+            case Announce():
+                # Typically a lamp that just got mains power back (a wall switch).
+                LOGGER.info("Lamp %s announced itself; reading its state", event.ieee)
+                self._spawn_logged(self._refresh_soon(event.ieee), f"Refreshing {event.ieee}")
+
+    async def _refresh_soon(self, ieee: str) -> None:
+        await asyncio.sleep(ANNOUNCE_SETTLE_S)  # give a booting lamp a moment
+        with contextlib.suppress(LightError, TimeoutError):
+            await self._poll_lamp(self.registry.controller(ieee))
+
+    async def _poll_lamp(self, controller: LightController) -> None:
+        try:
+            async with asyncio.timeout(REFRESH_TIMEOUT_S), controller.lock:
+                await controller.refresh()
+        except TimeoutError:
+            controller.failures += 1
+            controller.reachable = False
+            controller.last_error = "no answer"
+            raise
+
+    async def _poll_lamps(self) -> None:
+        """Read each lamp now and then: catches wall switches and lost reports. A lamp
+        that does not answer is polled less often (its power may simply be off)."""
+        next_poll: dict[str, float] = {}
+        while True:
+            await asyncio.sleep(POLL_TICK_S)
+            for ieee, controller in list(self.registry.controllers.items()):
+                now = time.monotonic()
+                if (
+                    not controller.available
+                    or now < next_poll.get(ieee, 0)
+                    or controller.recently_commanded(now)
+                    or controller.lock.locked()
+                ):
+                    continue
+                before = (controller.reachable, asdict(controller.state))
+                with contextlib.suppress(LightError, TimeoutError):
+                    await self._poll_lamp(controller)
+                next_poll[ieee] = time.monotonic() + poll_delay(controller.failures)
+                if (controller.reachable, asdict(controller.state)) != before:
+                    self.notify()
 
     def _set_power_on_policy(self, ieee: str) -> bool:
         """The wake-up lamp keeps its state over a power cut (a night-time cut must not
@@ -519,6 +625,8 @@ class Service:
             "model": device.model,
             "paired": self.registry.paired(ieee),
             **self._light_fields(controller),
+            "reachable": controller.reachable,
+            "last_report": controller.last_report,
             "wakeup": ieee == self.settings.wakeup.light,
             "power_on": self.settings.light_settings(ieee).power_on,
             "owner": None,  # filled in by the behaviour layer (phase 3/4)

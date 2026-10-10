@@ -63,7 +63,10 @@ Everything else:
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
 - **`settings.py`:** versioned `settings.json` (v2: devices, lights, wakeup, night, motion, remotes). A v1 file is migrated on load and kept as `settings.v1.json`. `serve --fake` devices (`FAKE_PREFIX`) are never saved.
 - **`registry.py`:** devices reported by the radio (`Discovered`) and one `LightController` per lamp. Radio-agnostic.
-- **`zigbee.py`:** the only module that touches zigpy for light control (`classify`/`discover` turn zigpy devices into `Discovered`). `xbee_config.py` uses raw serial frames, stdlib only.
+- **`zigbee.py`:** the only module that touches zigpy for light control (`classify`/`discover` turn zigpy devices into `Discovered`).
+  - `EventBridge` turns zigpy callbacks into `events.py` domain events on `Service.events`. It is attached before the radio starts (the `start_app(on_created=...)` hook). Every callback is wrapped in try/except: zigpy's `emit()` lets exceptions escape into packet handling.
+  - `configure_lamp` binds on/off, level and colour to the coordinator (unicast: the XStick drops group frames) and configures reporting. Verified on the FLOALT: reports arrive.
+- **Lamp state** is what we commanded, corrected by reports (`LightController.apply_report`, ignored for 5 s after our own command: the echo guard) and by polling (every 60 s, backing off to 10 min while a lamp doesn't answer; unreachable is not off). `xbee_config.py` uses raw serial frames, stdlib only.
 - **`app.py` (`Service`)** wires everything together. `web.py` is a thin JSON API.
   - Per-lamp level/warmth go through `LatestWins` (`light.py`), so a dragged slider never queues behind the radio.
   - `GET /api/events` (SSE) pushes the full state on every change: call `service.notify()` after anything that changes state (web writes do it in the `guard` middleware).
@@ -87,7 +90,7 @@ Everything else:
 
 - Test against `FakeLight` + `FakeClock`. `FakeClock.sleep*` advances time instantly.
 - Hardware checks go through the HTTP API (`curl` against `http://kotivalo.local:8080/api/...`).
-  - Restore the user's alarms and ramp settings afterwards.
+  - The lamps may be in use: note every lamp's state (`/api/state`) before a test and restore it afterwards, along with the user's alarms and ramp settings.
   - Don't leave the light on at night.
 - Deploying restarts the service. A running sunrise resumes from the wall clock, but check for one first.
 - Commit and push at the end of each phase or fix without asking: the user gave standing permission on 2026-10-10. Commit messages end with the `Co-Authored-By` line.

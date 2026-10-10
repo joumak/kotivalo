@@ -1,0 +1,121 @@
+"""EventBridge, fed through zigpy's real packet pipeline with recorded ZCL bytes."""
+
+import asyncio
+
+import pytest
+import zigpy.application
+import zigpy.device
+import zigpy.endpoint
+import zigpy.types as t
+from zigpy.zcl.clusters.general import LevelControl, OnOff
+from zigpy.zcl.clusters.lighting import Color
+
+from kotivalo.events import Announce, LightReport
+from kotivalo.zigbee import EventBridge
+
+LAMP = "d0:cf:5e:ff:fe:1f:a3:9e"
+NWK = 0x15A4
+
+
+class RadiolessApp(zigpy.application.ControllerApplication):
+    """Just enough of a zigpy application to push packets through it."""
+
+    async def connect(self): ...
+    async def disconnect(self): ...
+    async def start_network(self): ...
+    async def force_remove(self, dev): ...
+    async def add_endpoint(self, descriptor): ...
+    async def send_packet(self, packet): ...
+    async def permit_ncp(self, time_s=60): ...
+    async def permit_with_link_key(self, node, link_key, time_s=60): ...
+    async def write_network_info(self, *, network_info, node_info): ...
+    async def load_network_info(self, *, load_devices=False): ...
+    async def reset_network_info(self): ...
+    async def _network_scan(self, *args, **kwargs): ...
+    async def _packet_capture(self, *args, **kwargs): ...
+    async def _packet_capture_change_channel(self, channel): ...
+    async def _subscribe_to_multicast_group(self, *args, **kwargs): ...
+    async def _unsubscribe_from_multicast_group(self, *args, **kwargs): ...
+
+
+@pytest.fixture
+async def app():
+    app = RadiolessApp({"device": {"path": "/dev/null"}})
+    device = app.add_device(t.EUI64.convert(LAMP), NWK)
+    ep = device.add_endpoint(1)
+    ep.profile_id = 0x0104
+    for cluster in (OnOff, LevelControl, Color):
+        ep.add_input_cluster(cluster.cluster_id)
+    ep.status = zigpy.endpoint.Status.ZDO_INIT
+    device.status = zigpy.device.Status.ENDPOINTS_INIT
+    return app
+
+
+def packet(cluster: int, data: str, profile: int = 0x0104, endpoint: int = 1) -> t.ZigbeePacket:
+    return t.ZigbeePacket(
+        src=t.AddrModeAddress(addr_mode=t.AddrMode.NWK, address=NWK),
+        src_ep=endpoint,
+        dst=t.AddrModeAddress(addr_mode=t.AddrMode.NWK, address=0x0000),
+        dst_ep=endpoint,
+        tsn=5,
+        profile_id=profile,
+        cluster_id=cluster,
+        data=t.SerializableBytes(bytes.fromhex(data)),
+        lqi=255,
+        rssi=-50,
+    )
+
+
+# ZCL Report Attributes, server -> client: frame control 0x18, tsn, command 0x0a,
+# then attribute id (little endian), type, value.
+ON_OFF_REPORT = "18050a00001001"  # on_off (0x0000, bool) = 1
+LEVEL_REPORT = "18060a00002080"  # current_level (0x0000, uint8) = 128
+CT_REPORT = "18070a07002172 01"  # color_temperature (0x0007, uint16) = 0x0172 = 370 mired
+
+
+async def drain(queue: asyncio.Queue) -> list:
+    await asyncio.sleep(0)
+    events = []
+    while not queue.empty():
+        events.append(queue.get_nowait())
+    return events
+
+
+async def test_lamp_reports_become_light_reports(app):
+    queue = asyncio.Queue()
+    bridge = EventBridge(queue)
+    bridge.attach_all(app)
+    bridge.attach_all(app)  # attaching twice must not double the events
+
+    app.packet_received(packet(OnOff.cluster_id, ON_OFF_REPORT))
+    app.packet_received(packet(LevelControl.cluster_id, LEVEL_REPORT))
+    app.packet_received(packet(Color.cluster_id, CT_REPORT.replace(" ", "")))
+
+    events = await drain(queue)
+    assert [(e.attribute, int(e.value)) for e in events] == [
+        ("on_off", 1),
+        ("current_level", 128),
+        ("color_temperature", 370),
+    ]
+    assert all(e == LightReport(LAMP, e.attribute, e.value) for e in events)
+
+
+async def test_device_announce_becomes_announce(app):
+    queue = asyncio.Queue()
+    bridge = EventBridge(queue)
+    app.add_listener(bridge)
+    ieee = bytes(reversed(bytes.fromhex(LAMP.replace(":", "")))).hex()
+    # ZDO Device_annce: tsn, nwk (LE), ieee (LE), capabilities
+    app.packet_received(packet(0x0013, f"81a415{ieee}8e", profile=0, endpoint=0))
+    assert Announce(LAMP) in await drain(queue)
+
+
+async def test_a_failing_handler_never_breaks_zigpy(app):
+    class Broken(asyncio.Queue):
+        def put_nowait(self, item):
+            raise RuntimeError("bug in our code")
+
+    bridge = EventBridge(Broken())
+    bridge.attach_all(app)
+    app.add_listener(bridge)
+    app.packet_received(packet(OnOff.cluster_id, ON_OFF_REPORT))  # must not raise

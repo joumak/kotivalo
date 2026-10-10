@@ -29,6 +29,8 @@ export interface Lamp {
   kelvin_step: number
   state: LightState
   error: string | null
+  reachable: boolean | null // null until the service has talked to it
+  last_report: number | null // unix seconds of the lamp's last report
   wakeup: boolean
   power_on: 'on' | 'previous'
   owner: Owner | null

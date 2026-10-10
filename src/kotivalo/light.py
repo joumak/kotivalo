@@ -94,9 +94,13 @@ class FakeLight:
         self._record("stop")
 
     async def read_state(self) -> LightState:
+        if self.fail:
+            raise LightError("fake failure")
         return LightState(**asdict(self.state))
 
     async def read_caps(self) -> LightCaps:
+        if self.fail:
+            raise LightError("fake failure")
         return self.caps
 
     def commands(self) -> list[tuple]:
@@ -104,10 +108,15 @@ class FakeLight:
         return [call[1:] for call in self.calls]
 
 
-class LightController:
-    """Serialises commands to one light and keeps the last commanded state.
+ECHO_GUARD_S = 5  # reports this soon after our own command may predate it
 
-    The lock keeps a CT-then-level pair from interleaving with another command.
+
+class LightController:
+    """Serialises commands to one light and tracks its state.
+
+    The state is what we last commanded, corrected by the lamp's own reports and
+    by polling. The lock keeps a CT-then-level pair from interleaving with another
+    command.
     """
 
     def __init__(self, light: Light | None, caps: LightCaps | None = None):
@@ -116,6 +125,10 @@ class LightController:
         self.state = LightState()
         self.lock = asyncio.Lock()
         self.last_error: str | None = None
+        self.reachable: bool | None = None  # None until we have talked to it
+        self.failures = 0  # consecutive failed commands or polls
+        self.last_command = -1e9  # time.monotonic() of our last command
+        self.last_report: float | None = None  # unix time of the lamp's last report
 
     @property
     def available(self) -> bool:
@@ -126,13 +139,42 @@ class LightController:
             raise LightError("No light selected. Pair one and choose it in the device list.")
         return self.light
 
-    async def _run(self, coro_factory) -> None:
+    async def _run(self, coro_factory, *, command: bool = True):
+        if command:
+            self.last_command = time.monotonic()
         try:
-            await coro_factory()
-            self.last_error = None
+            result = await coro_factory()
         except LightError as exc:
             self.last_error = str(exc)
+            self.failures += 1
+            self.reachable = False
             raise
+        self.last_error = None
+        self.failures = 0
+        self.reachable = True
+        return result
+
+    def recently_commanded(self, now: float | None = None) -> bool:
+        """True right after our own command, when reports and reads may predate it."""
+        return (now if now is not None else time.monotonic()) - self.last_command < ECHO_GUARD_S
+
+    def apply_report(self, attribute: str, value) -> bool:
+        """The lamp reported an attribute. Returns True if the state changed.
+
+        Ignored right after our own command: a report sent before the command took
+        effect would undo what we just did (the echo guard)."""
+        self.last_report = time.time()
+        if self.recently_commanded():
+            return False
+        before = (self.state.on, self.state.level, self.state.mireds)
+        if attribute == "on_off":
+            self.state.on = bool(value)
+        elif attribute == "current_level" and value is not None:
+            self.state.level = int(value)
+        elif attribute == "color_temperature" and value is not None:
+            self.state.mireds = int(value)
+        self.reachable, self.failures, self.last_error = True, 0, None
+        return before != (self.state.on, self.state.level, self.state.mireds)
 
     async def set_level(self, level: int, transition_s: float = 0) -> None:
         light = self._require()
@@ -167,8 +209,9 @@ class LightController:
         await self._run(light.stop)
 
     async def refresh(self) -> LightState:
+        """Read the lamp's actual state (counts toward reachability, not as a command)."""
         light = self._require()
-        state = await light.read_state()
+        state = await self._run(light.read_state, command=False)
         self.state = state
         return state
 

@@ -16,9 +16,13 @@ import zigpy.application
 import zigpy.device
 import zigpy.exceptions
 import zigpy.types
+from zigpy.zcl import foundation
 from zigpy.zcl.clusters.general import LevelControl, OnOff, StartUpOnOff
 from zigpy.zcl.clusters.lighting import Color, ColorCapabilities
+from zigpy.zcl.helpers import ReportingConfig
+from zigpy.zdo.types import Status as ZdoStatus
 
+from kotivalo.events import Announce, Event, LightReport
 from kotivalo.light import LightCaps, LightError, LightState
 from kotivalo.registry import Discovered
 from kotivalo.settings import RadioSettings
@@ -100,15 +104,24 @@ def controller_class(radio_type: str) -> type[zigpy.application.ControllerApplic
 
 
 async def start_app(
-    radio: RadioSettings, db_path: Path, *, start_radio: bool = True
+    radio: RadioSettings,
+    db_path: Path,
+    *,
+    start_radio: bool = True,
+    on_created: Callable[[zigpy.application.ControllerApplication], None] | None = None,
 ) -> zigpy.application.ControllerApplication:
     """Load the device database and (optionally) bring up the radio.
+
+    `on_created` runs after the database is loaded and before the radio starts, so
+    listeners attached there see every report from the first moment.
 
     XBee networks are formed explicitly with `form-network`, never automatically:
     every network write costs EM250 flash cycles and forces a re-pair.
     """
     cls = controller_class(radio.type)
     app = await cls.new(zigpy_config(radio, db_path), start_radio=False)
+    if on_created is not None:
+        on_created(app)
     if not start_radio:
         return app
     try:
@@ -174,6 +187,115 @@ def discovered(device: zigpy.device.Device) -> Discovered:
 
 def discover(app: zigpy.application.ControllerApplication) -> list[Discovered]:
     return [discovered(d) for d in app.devices.values() if not is_coordinator(d)]
+
+
+# Lamp attributes reported to the coordinator: (min s, max s, reportable change).
+# The max interval doubles as a keep-alive; level reports at most every 2 s during fades.
+LAMP_REPORTING = {
+    OnOff.cluster_id: {"on_off": (0, 300, 1)},
+    LevelControl.cluster_id: {"current_level": (2, 300, 5)},
+    Color.cluster_id: {"color_temperature": (2, 600, 10)},
+}
+CONFIGURE_TIMEOUT_S = 15
+ZDO_DEVICE_ANNOUNCE = 0x0013
+
+
+async def configure_lamp(device: zigpy.device.Device, endpoint_id: int | None) -> bool:
+    """Bind the lamp's on/off, level and colour clusters to the coordinator and ask for
+    reports. Bindings are unicast to the coordinator (the XStick drops group traffic).
+    Returns True when everything was accepted."""
+    ep = device.endpoints.get(endpoint_id) if endpoint_id is not None else light_endpoint(device)
+    if ep is None:
+        return False
+    ok = True
+    for cluster_id, attributes in LAMP_REPORTING.items():
+        cluster = ep.in_clusters.get(cluster_id)
+        if cluster is None:
+            continue
+        try:
+            async with asyncio.timeout(CONFIGURE_TIMEOUT_S):
+                bound = await cluster.bind()
+                config = {
+                    cluster.find_attribute(name): ReportingConfig(*values)
+                    for name, values in attributes.items()
+                }
+                result = await cluster.configure_reporting_multiple(config)
+        except (zigpy.exceptions.ZigbeeException, TimeoutError) as exc:
+            LOGGER.warning("Configuring %s %s failed: %r", device.ieee, cluster.name, exc)
+            ok = False
+            continue
+        bind_status = bound[0] if bound else None
+        failed = {a.name: s for a, s in result.items() if s != foundation.Status.SUCCESS}
+        if bind_status != ZdoStatus.SUCCESS or failed:
+            LOGGER.warning(
+                "Lamp %s %s: bind %s, reporting not accepted for %s",
+                device.ieee,
+                cluster.name,
+                bind_status,
+                failed or "none",
+            )
+            ok = False
+        else:
+            LOGGER.info("Lamp %s %s: bound and reporting", device.ieee, cluster.name)
+    return ok
+
+
+class EventBridge:
+    """Turns zigpy callbacks into domain events (events.py) on an asyncio queue.
+
+    zigpy's emit() does not catch exceptions from callbacks, so every callback here
+    is wrapped: a bug in our code must never break zigpy's packet handling.
+    Attaching is idempotent per cluster object (a re-interview replaces them).
+    """
+
+    def __init__(self, queue: asyncio.Queue[Event]):
+        self.queue = queue
+        self._attached: set[int] = set()
+
+    def attach(self, device: zigpy.device.Device) -> None:
+        ep = light_endpoint(device)
+        if ep is None:
+            return
+        for cluster_id in LAMP_REPORTING:
+            cluster = ep.in_clusters.get(cluster_id)
+            if cluster is not None and id(cluster) not in self._attached:
+                self._attached.add(id(cluster))
+                cluster.on_event("attribute_report", self._on_report)
+
+    def attach_all(self, app: zigpy.application.ControllerApplication) -> None:
+        for device in app.devices.values():
+            if not is_coordinator(device):
+                self.attach(device)
+
+    def _put(self, event: Event) -> None:
+        try:
+            self.queue.put_nowait(event)
+        except Exception:  # noqa: BLE001 - never raise into zigpy
+            LOGGER.exception("Dropping event %r", event)
+
+    def _on_report(self, event) -> None:
+        try:
+            name = event.attribute_name
+            if name in ("on_off", "current_level", "color_temperature"):
+                self._put(LightReport(str(event.device_ieee), name, event.value))
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Bad attribute report %r", event)
+
+    # zigpy application listener methods
+    def handle_message(self, device, profile, cluster, src_ep, dst_ep, data) -> None:
+        try:
+            if profile == 0 and cluster == ZDO_DEVICE_ANNOUNCE:
+                self._put(Announce(str(device.ieee)))
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Bad message from %r", device)
+
+    def device_initialized(self, device) -> None:
+        try:
+            self.attach(device)
+        except Exception:  # noqa: BLE001
+            LOGGER.exception("Attaching to %r failed", device)
+
+    device_reinterviewed = device_initialized
 
 
 class DeviceEvents:

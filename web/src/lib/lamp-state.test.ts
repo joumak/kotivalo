@@ -18,6 +18,8 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   kelvin_step: 50,
   state: { on: true, level: 170, mireds: 370, kelvin: 2703, ...state },
   error: null,
+  reachable: true,
+  last_report: null,
   wakeup: false,
   power_on: 'on',
   owner: null,

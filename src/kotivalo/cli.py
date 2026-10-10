@@ -12,18 +12,18 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from wakeup_light import xbee_config
-from wakeup_light.light import LightError
-from wakeup_light.settings import SettingsError, Store
+from kotivalo import xbee_config
+from kotivalo.light import LightError
+from kotivalo.settings import SettingsError, Store
 
-DEFAULT_STATE_DIR = Path("/var/lib/wakeup-light")
+DEFAULT_STATE_DIR = Path("/var/lib/kotivalo")
 EXIT_CONFIG = 78  # systemd unit does not restart on this
 
 AI_MEANING = {0x00: "network formed/joined", 0xFF: "scanning/starting", 0x21: "scan found no PAN"}
 
 
 def default_state_dir() -> Path:
-    if env := os.environ.get("WAKEUP_LIGHT_STATE_DIR"):
+    if env := os.environ.get("KOTIVALO_STATE_DIR"):
         return Path(env)
     if DEFAULT_STATE_DIR.is_dir() and os.access(DEFAULT_STATE_DIR, os.W_OK):
         return DEFAULT_STATE_DIR
@@ -38,7 +38,7 @@ def say(msg: str) -> None:
 
 
 def cmd_xbee_config(args, store: Store) -> None:
-    from wakeup_light.zigbee import radio_lock
+    from kotivalo.zigbee import radio_lock
 
     settings = store.load_settings()
     with radio_lock(store.lock_path):
@@ -50,7 +50,7 @@ def cmd_xbee_config(args, store: Store) -> None:
 
 
 def cmd_radio_info(args, store: Store) -> None:
-    from wakeup_light.zigbee import radio_lock
+    from kotivalo.zigbee import radio_lock
 
     radio = store.load_settings().radio
     with radio_lock(store.lock_path):
@@ -94,7 +94,7 @@ def cmd_form_network(args, store: Store) -> None:
 
 
 async def _form_network(settings, store: Store) -> None:
-    from wakeup_light.zigbee import controller_class, radio_lock, zigpy_config
+    from kotivalo.zigbee import controller_class, radio_lock, zigpy_config
 
     with radio_lock(store.lock_path):
         cls = controller_class(settings.radio.type)
@@ -121,7 +121,7 @@ def cmd_devices(args, store: Store) -> None:
 
 
 async def _devices(store: Store) -> None:
-    from wakeup_light.zigbee import devices, radio_lock, start_app
+    from kotivalo.zigbee import devices, radio_lock, start_app
 
     settings = store.load_settings()
     with radio_lock(store.lock_path):
@@ -146,7 +146,7 @@ def cmd_pair(args, store: Store) -> None:
 
 
 async def _pair(args, store: Store) -> None:
-    from wakeup_light.zigbee import DeviceEvents, ZigbeeLight, light_endpoint, radio_lock, start_app
+    from kotivalo.zigbee import DeviceEvents, ZigbeeLight, light_endpoint, radio_lock, start_app
 
     settings = store.load_settings()
     lights = []
@@ -204,13 +204,13 @@ def cmd_light(args, store: Store) -> None:
 
 
 async def _light(args, store: Store) -> None:
-    from wakeup_light.ramp import kelvin_to_mired
-    from wakeup_light.zigbee import ZigbeeLight, radio_lock, start_app
+    from kotivalo.ramp import kelvin_to_mired
+    from kotivalo.zigbee import ZigbeeLight, radio_lock, start_app
 
     settings = store.load_settings()
     ieee = args.ieee or settings.target_ieee
     if not ieee:
-        sys.exit("No light selected: run 'wakeup-light pair' first, or pass --ieee")
+        sys.exit("No light selected: run 'kotivalo pair' first, or pass --ieee")
     with radio_lock(store.lock_path):
         app = await start_app(settings.radio, store.db_path)
         try:
@@ -237,7 +237,7 @@ async def _light(args, store: Store) -> None:
 
 
 def cmd_serve(args, store: Store) -> None:
-    from wakeup_light.app import serve
+    from kotivalo.app import serve
 
     code = asyncio.run(serve(store, host=args.host, port=args.port, fake=args.fake))
     leftover = [t.name for t in threading.enumerate() if t is not threading.main_thread()]
@@ -247,7 +247,7 @@ def cmd_serve(args, store: Store) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="wakeup-light", description=__doc__)
+    parser = argparse.ArgumentParser(prog="kotivalo", description=__doc__)
     parser.add_argument(
         "--state-dir", type=Path, default=None, help="settings, state and zigbee.db"
     )
@@ -308,7 +308,7 @@ def main(argv: list[str] | None = None) -> None:
     except (xbee_config.XBeeError, LightError) as exc:
         sys.exit(f"Error: {exc}")
     except Exception as exc:
-        from wakeup_light.zigbee import RadioError
+        from kotivalo.zigbee import RadioError
 
         if isinstance(exc, RadioError):
             sys.exit(f"Radio error: {exc}")

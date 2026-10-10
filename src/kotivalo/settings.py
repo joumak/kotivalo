@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from wakeup_light.light import LightCaps
+from kotivalo.light import LightCaps
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")

@@ -4,25 +4,25 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 
 ## System
 
-- **Pi:** Raspberry Pi 3B+, Pi OS Lite (Debian 13, aarch64, **Python 3.13**), `pi@wakeup-light.local` (192.168.1.174), passwordless sudo.
+- **Pi:** Raspberry Pi 3B+, Pi OS Lite (Debian 13, aarch64, **Python 3.13**), `pi@kotivalo.local` (192.168.1.174), passwordless sudo.
 - **Radio:** Digi XStick2 ZB (XBee S2, EM250, ZB Coordinator API firmware 21A7) at `/dev/serial/by-id/usb-Digi_XStick-if00-port0`.
   - Settings: AP=2, 57600 baud. Zigbee channel 25 (Wi-Fi is on channel 6).
   - Uses zigpy 2.3.0 + zigpy-xbee 0.22.0. zigbee2mqtt does not support XBee.
 - **Light:** IKEA "FLOALT panel WS 60x60" (`50:32:5f:ff:fe:6e:e5:2c`), 250–454 mired.
-- **Service:** systemd unit `wakeup-light`, web UI on port 8080.
-- **State:** `/var/lib/wakeup-light` (`settings.json`, `state.json`, `zigbee.db`).
+- **Service:** systemd unit `kotivalo`, web UI on port 8080.
+- **State:** `/var/lib/kotivalo` (`settings.json`, `state.json`, `zigbee.db`).
 - **Laptop:** dev venv uses Python **3.11.0rc1**, which is not the Pi's 3.13. Code must work on both.
 
 ## Commands
 
 ```sh
 .venv/bin/pytest -q && .venv/bin/ruff check . && .venv/bin/ruff format --check .
-.venv/bin/wakeup-light --state-dir var serve --fake --port 8080   # local UI, in-memory light
+.venv/bin/kotivalo --state-dir var serve --fake --port 8080   # local UI, in-memory light
 deploy/deploy.sh                 # runs tests, then rsync + install + restart the service on the Pi
-ssh pi@wakeup-light.local journalctl -u wakeup-light -b   # journal is in RAM: lost on reboot
+ssh pi@kotivalo.local journalctl -u kotivalo -b   # journal is in RAM: lost on reboot
 ```
 
-CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `radio-info`) run on the Pi and need the service stopped first: `sudo systemctl stop wakeup-light`. The service and the CLI take the same `flock`, so only one opens the radio at a time.
+CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `radio-info`) run on the Pi and need the service stopped first: `sudo systemctl stop kotivalo`. The service and the CLI take the same `flock`, so only one opens the radio at a time.
 
 ## Hard rules
 
@@ -65,8 +65,8 @@ Everything else:
 ## Testing and verification
 
 - Test against `FakeLight` + `FakeClock`. `FakeClock.sleep*` advances time instantly.
-- Hardware checks go through the HTTP API (`curl` against `http://wakeup-light.local:8080/api/...`).
+- Hardware checks go through the HTTP API (`curl` against `http://kotivalo.local:8080/api/...`).
   - Restore the user's alarms and ramp settings afterwards.
   - Don't leave the light on at night.
 - Deploying restarts the service. A running sunrise resumes from the wall clock, but check for one first.
-- Commit only when asked. Commit messages end with the `Co-Authored-By` line.
+- Commit and push at the end of each phase or fix without asking: the user gave standing permission on 2026-10-10. Commit messages end with the `Co-Authored-By` line.

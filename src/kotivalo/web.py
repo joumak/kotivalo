@@ -8,8 +8,8 @@ from pathlib import Path
 
 from aiohttp import web
 
-from wakeup_light.light import LightError
-from wakeup_light.settings import SettingsError
+from kotivalo.light import LightError
+from kotivalo.settings import SettingsError
 
 LOGGER = logging.getLogger(__name__)
 

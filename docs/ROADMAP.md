@@ -121,11 +121,9 @@ Today brightness and warmth are sent only when the slider is released.
 
 **Decide after testing option 2 on the panel.**
 
-### 6. Naming
+### 6. ~~Naming~~ (done 2026-10-10)
 
-Once the project is general home lighting, rename the repo, package (`wakeup_light`), service and hostname (for example `valot`). This is easiest before more features build on the names.
-
-**Open question:** the new name.
+Renamed to **kotivalo**: repo, package and command, service, state directory and hostname.
 
 ---
 

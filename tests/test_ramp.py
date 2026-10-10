@@ -3,9 +3,9 @@ from itertools import pairwise
 
 import pytest
 
-from wakeup_light.light import LightCaps
-from wakeup_light.ramp import Curve, kelvin_range, kelvin_to_mired, plan_ticks, step_seconds
-from wakeup_light.settings import RampSettings
+from kotivalo.light import LightCaps
+from kotivalo.ramp import Curve, kelvin_range, kelvin_to_mired, plan_ticks, step_seconds
+from kotivalo.settings import RampSettings
 
 START = datetime(2026, 10, 12, 3, 30, tzinfo=UTC)
 

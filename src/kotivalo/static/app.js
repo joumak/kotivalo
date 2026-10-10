@@ -12,7 +12,7 @@ const busy = new Set(); // inputs the user is touching; don't overwrite them
 // --- API -------------------------------------------------------------------------
 
 function token() {
-  try { return localStorage.getItem("wakeup-token") || ""; } catch { return ""; }
+  try { return localStorage.getItem("kotivalo-token") || ""; } catch { return ""; }
 }
 
 async function api(method, path, body) {
@@ -31,7 +31,7 @@ async function api(method, path, body) {
   if (res.status === 401) {
     const t = prompt("Access token:");
     if (t) {
-      try { localStorage.setItem("wakeup-token", t); } catch { /* private mode */ }
+      try { localStorage.setItem("kotivalo-token", t); } catch { /* private mode */ }
       return api(method, path, body);
     }
   }

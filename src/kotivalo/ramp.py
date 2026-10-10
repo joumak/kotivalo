@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from wakeup_light.light import MAX_LEVEL, MIN_LEVEL, LightCaps
+from kotivalo.light import MAX_LEVEL, MIN_LEVEL, LightCaps
 
 MAX_STEP_S = 30.0
 MIN_STEP_S = 2.0

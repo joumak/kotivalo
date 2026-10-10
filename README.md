@@ -1,8 +1,10 @@
-# wakeup-light
+# kotivalo
 
-A sunrise alarm for an IKEA Zigbee light, running on a Raspberry Pi.
+Home lighting control for IKEA Zigbee lights, running on a Raspberry Pi. The name is
+Finnish: *koti* (home) + *valo* (light). It started as a sunrise alarm, and is growing
+into control of several lamps with motion sensors and remotes (see [the roadmap](docs/ROADMAP.md)).
 
-Before each alarm the light fades in. It starts as a dim warm glow and reaches full,
+**The sunrise alarm:** before each alarm the light fades in. It starts as a dim warm glow and reaches full,
 cooler white at the alarm time, then switches off after a set time. You set alarms and
 control the light from a phone-friendly web page on the Pi.
 
@@ -15,7 +17,7 @@ control the light from a phone-friendly web page on the Pi.
 - [zigpy](https://github.com/zigpy/zigpy) and [zigpy-xbee](https://github.com/zigpy/zigpy-xbee), the radio stack Home Assistant's ZHA uses. zigbee2mqtt does not support XBee radios.
 - aiohttp for the web UI.
 
-Web UI: `http://wakeup-light.local:8080`, or by IP (currently `http://192.168.1.174:8080`) on phones that do not resolve `.local` names.
+Web UI: `http://kotivalo.local:8080`, or by IP (currently `http://192.168.1.174:8080`) on phones that do not resolve `.local` names.
 
 Planned work and known issues: [docs/ROADMAP.md](docs/ROADMAP.md). Notes for working on the code: [CLAUDE.md](CLAUDE.md).
 
@@ -48,15 +50,15 @@ Planned work and known issues: [docs/ROADMAP.md](docs/ROADMAP.md). Notes for wor
 
 | Path | What |
 |---|---|
-| `src/wakeup_light/ramp.py`, `schedule.py` | pure maths: curve, tick plan, alarm occurrences |
-| `src/wakeup_light/sunrise.py`, `scheduler.py` | runs one sunrise; starts/resumes alarms |
-| `src/wakeup_light/light.py` | `Light` protocol, `FakeLight`, `LightController` |
-| `src/wakeup_light/zigbee.py` | zigpy startup, `ZigbeeLight`, radio lock |
-| `src/wakeup_light/xbee_config.py` | raw XBee AT frames (one-time setup, `radio-info`) |
-| `src/wakeup_light/app.py`, `web.py`, `static/` | the service, JSON API, phone UI |
+| `src/kotivalo/ramp.py`, `schedule.py` | pure maths: curve, tick plan, alarm occurrences |
+| `src/kotivalo/sunrise.py`, `scheduler.py` | runs one sunrise; starts/resumes alarms |
+| `src/kotivalo/light.py` | `Light` protocol, `FakeLight`, `LightController` |
+| `src/kotivalo/zigbee.py` | zigpy startup, `ZigbeeLight`, radio lock |
+| `src/kotivalo/xbee_config.py` | raw XBee AT frames (one-time setup, `radio-info`) |
+| `src/kotivalo/app.py`, `web.py`, `static/` | the service, JSON API, phone UI |
 | `deploy/` | `pi-setup.sh`, `deploy.sh`, systemd unit |
 
-State lives in `/var/lib/wakeup-light` on the Pi:
+State lives in `/var/lib/kotivalo` on the Pi:
 - `settings.json`: alarms, ramp, radio, the selected light
 - `state.json`: skipped alarms, last run
 - `zigbee.db`: zigpy's device database
@@ -66,7 +68,7 @@ State lives in `/var/lib/wakeup-light` on the Pi:
 ```sh
 python3.11 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 .venv/bin/pytest -q && .venv/bin/ruff check .
-.venv/bin/wakeup-light --state-dir var serve --fake --port 8080   # UI with an in-memory light
+.venv/bin/kotivalo --state-dir var serve --fake --port 8080   # UI with an in-memory light
 ```
 
 ## Deploy
@@ -76,7 +78,7 @@ deploy/deploy.sh               # ruff + pytest, rsync, pip install on the Pi, re
 deploy/deploy.sh --no-service  # code only (for CLI work with the service stopped)
 ```
 
-Logs: `ssh pi@wakeup-light.local journalctl -fu wakeup-light`. The journal is kept in RAM, so logs don't survive a reboot. The UI footer shows the result of the last alarm.
+Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RAM, so logs don't survive a reboot. The UI footer shows the result of the last alarm.
 
 ## Setting up a Pi from scratch
 
@@ -88,7 +90,7 @@ Logs: `ssh pi@wakeup-light.local journalctl -fu wakeup-light`. The journal is ke
    ```
 
    It does the following:
-   - renames the Pi to `wakeup-light` (or `NEW_HOSTNAME`), so it becomes `wakeup-light.local`, and stops cloud-init from resetting the name
+   - renames the Pi to `kotivalo` (or `NEW_HOSTNAME`), so it becomes `kotivalo.local`, and stops cloud-init from resetting the name
    - apt full-upgrade
    - turns Wi-Fi power saving off
    - keeps the journal in RAM
@@ -96,12 +98,12 @@ Logs: `ssh pi@wakeup-light.local journalctl -fu wakeup-light`. The journal is ke
    - disables ModemManager and brltty
    - creates the state directory
 3. Install the code only: `deploy/deploy.sh --no-service`.
-4. Prepare the radio. These commands are on the Pi, in `~/wakeup-light`, using `.venv/bin/wakeup-light`.
+4. Prepare the radio. These commands are on the Pi, in `~/kotivalo`, using `.venv/bin/kotivalo`.
 
    ```sh
-   wakeup-light radio-info              # read-only: firmware, AP, baud, network
-   wakeup-light xbee-config             # one-time: AP=2 + 57600 baud, verified before saving
-   wakeup-light form-network --channel 25
+   kotivalo radio-info              # read-only: firmware, AP, baud, network
+   kotivalo xbee-config             # one-time: AP=2 + 57600 baud, verified before saving
+   kotivalo form-network --channel 25
    ```
 
    **Choosing a channel:**
@@ -111,12 +113,12 @@ Logs: `ssh pi@wakeup-light.local journalctl -fu wakeup-light`. The journal is ke
 5. Pair the light. With the panel on, switch it off and on 6 times (about 1 s each) and leave it on.
 
    ```sh
-   wakeup-light pair      # opens joining for 254 s; the first light becomes the alarm light
-   wakeup-light devices
-   wakeup-light light level 128 / ct 2700 / off / state
+   kotivalo pair      # opens joining for 254 s; the first light becomes the alarm light
+   kotivalo devices
+   kotivalo light level 128 / ct 2700 / off / state
    ```
 
-   You can also pair from the UI (Devices → Pair) while the service runs. CLI radio commands need the service stopped first: `sudo systemctl stop wakeup-light`.
+   You can also pair from the UI (Devices → Pair) while the service runs. CLI radio commands need the service stopped first: `sudo systemctl stop kotivalo`.
 6. Start the service with `deploy/deploy.sh`.
 
 ## Troubleshooting
@@ -125,7 +127,7 @@ Logs: `ssh pi@wakeup-light.local journalctl -fu wakeup-light`. The journal is ke
 - **"The radio has no Zigbee network yet":** run `form-network`. The service exits with code 78 and systemd does not retry.
 - **The light stops responding:**
   - Check that the wall switch is on.
-  - Look at `wakeup-light devices` (last_seen).
+  - Look at `kotivalo devices` (last_seen).
   - Re-pair if needed: 6 off/on cycles while the network is open for pairing.
 - **If the XStick ever won't keep the light joined, swap the radio.** A Sonoff ZBDongle-E or ZBDongle-P works with the same code:
   1. `pip install -e '.[ezsp]'` or `'.[znp]'`.

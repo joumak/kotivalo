@@ -1,12 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from wakeup_light.clock import FakeClock
-from wakeup_light.light import FakeLight, LightController
-from wakeup_light.ramp import Curve
-from wakeup_light.scheduler import AlarmScheduler, prune_skipped
-from wakeup_light.settings import Alarm, Settings, State
-from wakeup_light.sunrise import SunriseManager
+from kotivalo.clock import FakeClock
+from kotivalo.light import FakeLight, LightController
+from kotivalo.ramp import Curve
+from kotivalo.scheduler import AlarmScheduler, prune_skipped
+from kotivalo.settings import Alarm, Settings, State
+from kotivalo.sunrise import SunriseManager
 
 TZ = ZoneInfo("Europe/Helsinki")
 MONDAY_7 = datetime(2026, 10, 12, 7, 0, tzinfo=TZ).astimezone(UTC)

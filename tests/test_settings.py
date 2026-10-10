@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from wakeup_light.light import LightCaps
-from wakeup_light.settings import Alarm, Settings, SettingsError, State, Store
+from kotivalo.light import LightCaps
+from kotivalo.settings import Alarm, Settings, SettingsError, State, Store
 
 
 def test_round_trip(tmp_path):

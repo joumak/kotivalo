@@ -6,9 +6,9 @@ import pytest
 import zigpy.exceptions
 from zigpy_xbee.zigbee.application import ControllerApplication as XBeeApp
 
-from wakeup_light import app as app_module
-from wakeup_light import systemd, zigbee
-from wakeup_light.settings import RadioSettings, Store
+from kotivalo import app as app_module
+from kotivalo import systemd, zigbee
+from kotivalo.settings import RadioSettings, Store
 
 
 class FakeRadioApp:

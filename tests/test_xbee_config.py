@@ -1,4 +1,4 @@
-from wakeup_light.xbee_config import SPECIAL, START, build_at_frame, parse_frames
+from kotivalo.xbee_config import SPECIAL, START, build_at_frame, parse_frames
 
 
 def response_frame(frame_id: int, command: str, value: bytes, escaped: bool) -> bytes:

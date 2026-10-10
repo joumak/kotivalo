@@ -9,9 +9,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from wakeup_light.clock import Clock
-from wakeup_light.light import MAX_LEVEL, LightController, LightError
-from wakeup_light.ramp import Curve, plan_ticks, progress
+from kotivalo.clock import Clock
+from kotivalo.light import MAX_LEVEL, LightController, LightError
+from kotivalo.ramp import Curve, plan_ticks, progress
 
 LOGGER = logging.getLogger(__name__)
 

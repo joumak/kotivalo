@@ -1,10 +1,10 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-from wakeup_light.clock import FakeClock
-from wakeup_light.light import FakeLight, LightCaps, LightController, LightState
-from wakeup_light.ramp import Curve
-from wakeup_light.sunrise import Run, SunriseManager
+from kotivalo.clock import FakeClock
+from kotivalo.light import FakeLight, LightCaps, LightController, LightState
+from kotivalo.ramp import Curve
+from kotivalo.sunrise import Run, SunriseManager
 
 START = datetime(2026, 10, 12, 3, 30, tzinfo=UTC)
 ALARM = START + timedelta(minutes=30)

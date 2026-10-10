@@ -19,8 +19,8 @@ import zigpy.types
 from zigpy.zcl.clusters.general import LevelControl, OnOff, StartUpOnOff
 from zigpy.zcl.clusters.lighting import Color, ColorCapabilities
 
-from wakeup_light.light import LightCaps, LightError, LightState
-from wakeup_light.settings import RadioSettings
+from kotivalo.light import LightCaps, LightError, LightState
+from kotivalo.settings import RadioSettings
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def radio_lock(path: Path) -> Iterator[None]:
         except BlockingIOError:
             raise RadioError(
                 "The radio is in use (is the service running? "
-                "stop it with: sudo systemctl stop wakeup-light)"
+                "stop it with: sudo systemctl stop kotivalo)"
             ) from None
         yield
 
@@ -118,7 +118,7 @@ async def start_app(
         await app.shutdown()
         if isinstance(exc, zigpy.exceptions.NetworkNotFormed):
             raise NetworkNotFormedError(
-                "The radio has no Zigbee network yet. Run: wakeup-light form-network"
+                "The radio has no Zigbee network yet. Run: kotivalo form-network"
             ) from exc
         if isinstance(exc, Exception):
             raise RadioError(f"Cannot start the radio on {radio.path}: {exc!r}") from exc

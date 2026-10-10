@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from wakeup_light.schedule import active_occurrence, occurrences, phase, upcoming
-from wakeup_light.settings import Alarm, RampSettings
+from kotivalo.schedule import active_occurrence, occurrences, phase, upcoming
+from kotivalo.settings import Alarm, RampSettings
 
 TZ = ZoneInfo("Europe/Helsinki")
 

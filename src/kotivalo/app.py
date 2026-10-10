@@ -11,20 +11,20 @@ from datetime import datetime, timedelta
 
 from aiohttp import web
 
-from wakeup_light import systemd
-from wakeup_light.clock import Clock, ntp_synchronized
-from wakeup_light.light import FakeLight, LightCaps, LightController, LightError
-from wakeup_light.ramp import (
+from kotivalo import systemd
+from kotivalo.clock import Clock, ntp_synchronized
+from kotivalo.light import FakeLight, LightCaps, LightController, LightError
+from kotivalo.ramp import (
     KELVIN_STEP,
     Curve,
     kelvin_range,
     kelvin_to_mired,
     mired_to_kelvin,
 )
-from wakeup_light.schedule import occurrences, upcoming
-from wakeup_light.scheduler import AlarmScheduler, prune_skipped
-from wakeup_light.settings import Alarm, RampSettings, SettingsError, Store
-from wakeup_light.sunrise import Run, SunriseManager
+from kotivalo.schedule import occurrences, upcoming
+from kotivalo.scheduler import AlarmScheduler, prune_skipped
+from kotivalo.settings import Alarm, RampSettings, SettingsError, Store
+from kotivalo.sunrise import Run, SunriseManager
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class Service:
             self.controller.caps = self.controller.light.caps
             self.settings.target_ieee = FAKE_IEEE
         else:
-            from wakeup_light.zigbee import DeviceEvents, start_app
+            from kotivalo.zigbee import DeviceEvents, start_app
 
             self.zigbee = await start_app(self.settings.radio, self.store.db_path)
             self.zigbee.add_listener(DeviceEvents(self._device_event))
@@ -112,7 +112,7 @@ class Service:
         self._tasks.append(asyncio.create_task(coro))
 
     def _attach_light(self) -> None:
-        from wakeup_light.zigbee import ZigbeeLight
+        from kotivalo.zigbee import ZigbeeLight
 
         ieee = self.settings.target_ieee
         self.controller.light = ZigbeeLight(self.zigbee, ieee) if ieee else None
@@ -146,7 +146,7 @@ class Service:
             await asyncio.sleep(CLOCK_CHECK_INTERVAL_S)
 
     def _device_event(self, kind: str, obj) -> None:
-        from wakeup_light.zigbee import light_endpoint
+        from kotivalo.zigbee import light_endpoint
 
         if kind == "connection_lost":
             if obj is not None:
@@ -256,7 +256,7 @@ class Service:
         self.pairing_until = self.clock.now() + timedelta(seconds=seconds) if seconds else None
 
     async def select_light(self, ieee: str) -> None:
-        from wakeup_light.zigbee import ZigbeeLight
+        from kotivalo.zigbee import ZigbeeLight
 
         if self.fake:
             return
@@ -279,7 +279,7 @@ class Service:
                     "last_seen": self.clock.now().timestamp(),
                 }
             ]  # fmt: skip
-        from wakeup_light.zigbee import devices
+        from kotivalo.zigbee import devices
 
         return devices(self.zigbee) if self.zigbee is not None else []
 
@@ -333,8 +333,8 @@ class Service:
 async def serve(store: Store, *, host: str, port: int, fake: bool = False) -> int:
     """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
     systemd can restart us: a process that hangs after an error never gets restarted."""
-    from wakeup_light.web import make_web_app
-    from wakeup_light.zigbee import NetworkNotFormedError, RadioError
+    from kotivalo.web import make_web_app
+    from kotivalo.zigbee import NetworkNotFormedError, RadioError
 
     service = Service(store, fake=fake)
     loop = asyncio.get_running_loop()

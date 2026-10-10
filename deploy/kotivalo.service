@@ -1,5 +1,5 @@
 [Unit]
-Description=Wakeup light (zigpy sunrise alarm)
+Description=Kotivalo home lighting (zigpy)
 Wants=network-online.target
 After=network-online.target time-sync.target
 
@@ -13,10 +13,10 @@ TimeoutStartSec=90
 User=pi
 Group=pi
 SupplementaryGroups=dialout
-WorkingDirectory=/home/pi/wakeup-light
-ExecStart=/home/pi/wakeup-light/.venv/bin/wakeup-light --state-dir /var/lib/wakeup-light serve --host 0.0.0.0 --port 8080
+WorkingDirectory=/home/pi/kotivalo
+ExecStart=/home/pi/kotivalo/.venv/bin/kotivalo --state-dir /var/lib/kotivalo serve --host 0.0.0.0 --port 8080
 Environment=PYTHONUNBUFFERED=1
-StateDirectory=wakeup-light
+StateDirectory=kotivalo
 Restart=on-failure
 RestartSec=10
 # Exit 78 = bad configuration: restarting won't help.

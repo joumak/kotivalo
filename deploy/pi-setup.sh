@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# One-time, idempotent system setup for the wakeup-light Pi. Runs as root; on a fresh Pi:
+# One-time, idempotent system setup for the kotivalo Pi. Runs as root; on a fresh Pi:
 #   ssh pi@raspberrypi.local 'sudo bash -s' < deploy/pi-setup.sh
-# Afterwards the Pi is pi@wakeup-light.local (choose another name with NEW_HOSTNAME=...).
+# Afterwards the Pi is pi@kotivalo.local (choose another name with NEW_HOSTNAME=...).
 # Ends with a reboot unless run with REBOOT=0 ('sudo REBOOT=0 bash -s').
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 apt_opts=(-y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
-NEW_HOSTNAME=${NEW_HOSTNAME:-wakeup-light}
+NEW_HOSTNAME=${NEW_HOSTNAME:-kotivalo}
 
 echo "== Hostname $NEW_HOSTNAME (reachable as $NEW_HOSTNAME.local via avahi/mDNS)"
 if [[ -d /etc/cloud/cloud.cfg.d ]]; then
@@ -63,7 +63,7 @@ for svc in ModemManager brltty; do
 done
 
 echo "== State directory"
-install -d -o pi -g pi -m 0750 /var/lib/wakeup-light
+install -d -o pi -g pi -m 0750 /var/lib/kotivalo
 
 if [[ "${REBOOT:-1}" == 1 ]]; then
   echo "== Rebooting"

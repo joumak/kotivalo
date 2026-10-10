@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from wakeup_light.settings import WEEKDAYS, Alarm, RampSettings
+from kotivalo.settings import WEEKDAYS, Alarm, RampSettings
 
 LOOKBACK_DAYS = 1  # an alarm's window (ramp + hold) can start the previous evening
 LOOKAHEAD_DAYS = 8

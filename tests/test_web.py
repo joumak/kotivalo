@@ -1,8 +1,8 @@
 import pytest
 
-from wakeup_light.app import Service
-from wakeup_light.settings import Store
-from wakeup_light.web import make_web_app
+from kotivalo.app import Service
+from kotivalo.settings import Store
+from kotivalo.web import make_web_app
 
 
 @pytest.fixture

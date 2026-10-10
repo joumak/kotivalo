@@ -8,10 +8,10 @@ import logging
 from collections.abc import Callable
 from datetime import timedelta
 
-from wakeup_light.clock import Clock
-from wakeup_light.schedule import active_occurrence, occurrences
-from wakeup_light.settings import Settings, State
-from wakeup_light.sunrise import Run, SunriseManager
+from kotivalo.clock import Clock
+from kotivalo.schedule import active_occurrence, occurrences
+from kotivalo.settings import Settings, State
+from kotivalo.sunrise import Run, SunriseManager
 
 LOGGER = logging.getLogger(__name__)
 

@@ -3,12 +3,12 @@
 # then install and restart the systemd service.
 #   deploy/deploy.sh               full deploy
 #   deploy/deploy.sh --no-service  install the code only (CLI use; service untouched)
-# Env: PI_HOST (default pi@wakeup-light.local), SKIP_TESTS=1 skips ruff and pytest.
+# Env: PI_HOST (default pi@kotivalo.local), SKIP_TESTS=1 skips ruff and pytest.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PI_HOST=${PI_HOST:-pi@wakeup-light.local}
-REMOTE_DIR=/home/pi/wakeup-light
+PI_HOST=${PI_HOST:-pi@kotivalo.local}
+REMOTE_DIR=/home/pi/kotivalo
 service=1
 [[ "${1:-}" == "--no-service" ]] && service=0
 
@@ -29,11 +29,11 @@ fi
 .venv/bin/pip install -q -e .
 
 if [[ "$SERVICE" == 1 ]]; then
-  sudo install -m 644 deploy/wakeup-light.service /etc/systemd/system/wakeup-light.service
+  sudo install -m 644 deploy/kotivalo.service /etc/systemd/system/kotivalo.service
   sudo systemctl daemon-reload
-  sudo systemctl enable -q wakeup-light.service
-  sudo systemctl restart wakeup-light.service
+  sudo systemctl enable -q kotivalo.service
+  sudo systemctl restart kotivalo.service
   sleep 5
-  systemctl --no-pager --lines=15 status wakeup-light.service || true
+  systemctl --no-pager --lines=15 status kotivalo.service || true
 fi
 EOF

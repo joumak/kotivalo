@@ -557,11 +557,9 @@ class Service:
         """Off fades out to dim. The wake-up lamp also turns warm, so its next start (a
         sunrise, a night light) never flashes cool; other lamps keep their warmth, as
         "on" restores the last setting by hand anyway."""
-        wakeup = ieee == self.settings.wakeup.light
+        warm = ieee == self.settings.wakeup.light and controller.caps.supports_ct
         return {
-            "park_mireds": controller.caps.max_mireds
-            if wakeup and controller.caps.supports_ct
-            else None,
+            "park_mireds": controller.caps.max_mireds if warm else None,
             "park_level": MIN_LEVEL,
             "fade_s": OFF_FADE_S,
         }

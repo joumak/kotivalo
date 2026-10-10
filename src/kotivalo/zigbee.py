@@ -381,9 +381,10 @@ class EventBridge:
                 action = self._buttons.decode(
                     ieee, device.model, src_ep, cluster, bytes(data), time.monotonic()
                 )
-                LOGGER.info("Remote %s 0x%04X %s: %s", ieee, cluster, bytes(data).hex(), action)
                 if action is not None:
                     self._put(Button(ieee, action))
+                elif not self._buttons.duplicate:  # a button we don't know yet
+                    LOGGER.info("Remote %s 0x%04X %s: unknown button", ieee, cluster, data.hex())
         except Exception:  # noqa: BLE001
             LOGGER.exception("Bad message from %r", device)
 

@@ -98,10 +98,12 @@ class Decoder:
     def __init__(self) -> None:
         self._seen: dict[tuple, float] = {}
         self._arrow_released: dict[str, float] = {}
+        self.duplicate = False  # whether the last frame decoded was a repeat
 
     def decode(
         self, ieee: str, model: str | None, endpoint: int, cluster: int, data: bytes, now: float
     ) -> str | None:
+        self.duplicate = False
         if cluster not in BUTTON_CLUSTERS:
             return None
         parsed = parse_command(data)
@@ -111,6 +113,7 @@ class Decoder:
         self._seen = {k: t for k, t in self._seen.items() if now - t < DUPLICATE_S}
         key = (ieee, endpoint, cluster, sequence)
         if key in self._seen:
+            self.duplicate = True
             return None
         self._seen[key] = now
         action = decode(cluster, command, payload)

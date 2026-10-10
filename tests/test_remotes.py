@@ -45,7 +45,9 @@ def test_duplicates_are_dropped_but_the_same_sequence_later_is_a_new_press():
     d = Decoder()
     assert d.decode(REMOTE, None, 1, ON_OFF, frame(5, 0x01), now=0.0) == "on"
     assert d.decode(REMOTE, None, 1, ON_OFF, frame(5, 0x01), now=0.5) is None
+    assert d.duplicate
     assert d.decode(REMOTE, None, 1, ON_OFF, frame(6, 0x00), now=0.6) == "off"
+    assert not d.duplicate
     assert d.decode(REMOTE, None, 1, ON_OFF, frame(5, 0x01), now=10.0) == "on"  # wrapped around
 
 

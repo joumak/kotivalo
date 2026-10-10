@@ -2,6 +2,12 @@
 
 Radio-agnostic: the zigbee module (or the fake mode) reports what it finds as
 `Discovered` records; names, rooms and lamp settings live in Settings.
+
+Two kinds of controllers:
+- `controllers`: one per bulb (a Zigbee device): polled, configured, reporting.
+- `fixtures`: one per fixture (a lamp made of several bulbs, e.g. its spots), whose
+  FixtureLight sends every command to all its bulbs.
+The lamps people see (`lamp_ids`) are the fixtures and the bulbs in none of them.
 """
 
 from __future__ import annotations
@@ -10,7 +16,15 @@ import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from kotivalo.light import Light, LightCaps, LightController, LightError
+from kotivalo.light import (
+    FixtureLight,
+    Light,
+    LightCaps,
+    LightController,
+    LightError,
+    combined_state,
+    common_caps,
+)
 from kotivalo.settings import Device, LightSettings, Settings, default_name
 
 LOGGER = logging.getLogger(__name__)
@@ -34,7 +48,8 @@ class Registry:
     def __init__(self, settings: Settings, make_light: Callable[[str, int | None], Light | None]):
         self.settings = settings
         self.make_light = make_light
-        self.controllers: dict[str, LightController] = {}
+        self.controllers: dict[str, LightController] = {}  # bulbs
+        self.fixtures: dict[str, LightController] = {}
         self.discovered: dict[str, Discovered] = {}
 
     def sync(self, found: Iterable[Discovered]) -> bool:
@@ -73,10 +88,10 @@ class Registry:
                     caps=LightCaps(model=item.model, manufacturer=item.manufacturer)
                 )
                 changed = True
-        self._sync_controllers()
+        self.sync_controllers()
         return changed
 
-    def _sync_controllers(self) -> None:
+    def sync_controllers(self) -> None:
         lamps = set(self.light_ieees())
         for ieee in lamps - self.controllers.keys():
             device = self.settings.devices[ieee]
@@ -84,15 +99,65 @@ class Registry:
             self.controllers[ieee] = LightController(self.make_light(ieee, device.endpoint), caps)
         for ieee in self.controllers.keys() - lamps:
             del self.controllers[ieee]
+        fixtures = set(self.fixture_ids())
+        for fid in fixtures - self.fixtures.keys():
+            light = FixtureLight(lambda fid=fid: [self.controllers[m] for m in self.members(fid)])
+            self.fixtures[fid] = LightController(light)
+        for fid in self.fixtures.keys() - fixtures:
+            del self.fixtures[fid]
+        for fid in fixtures:
+            self.update_fixture(fid)
 
     def light_ieees(self) -> list[str]:
+        """Every bulb (a Zigbee lamp device), in a fixture or not."""
         return [ieee for ieee, d in self.settings.devices.items() if d.kind == "light"]
 
+    def fixture_ids(self) -> list[str]:
+        return [ieee for ieee, d in self.settings.devices.items() if d.kind == "fixture"]
+
+    def members(self, fixture: str) -> list[str]:
+        device = self.settings.devices.get(fixture)
+        members = device.members if device is not None else []
+        return [m for m in members if m in self.controllers]
+
+    def fixture_of(self, ieee: str) -> str | None:
+        for fid, device in self.settings.devices.items():
+            if device.kind == "fixture" and ieee in device.members:
+                return fid
+        return None
+
+    def lamp_ids(self) -> list[str]:
+        """The lamps people see and use: fixtures, and the bulbs in none."""
+        members = {m for fid in self.fixture_ids() for m in self.settings.devices[fid].members}
+        return [
+            ieee
+            for ieee, d in self.settings.devices.items()
+            if (d.kind == "light" and ieee not in members) or d.kind == "fixture"
+        ]
+
+    def is_lamp(self, ieee: str | None) -> bool:
+        return ieee is not None and ieee in self.lamp_ids()
+
     def controller(self, ieee: str) -> LightController:
-        try:
-            return self.controllers[ieee]
-        except KeyError:
-            raise LightError(f"Unknown lamp {ieee}") from None
+        """A lamp's controller: a fixture's, or a bulb's."""
+        controller = self.fixtures.get(ieee) or self.controllers.get(ieee)
+        if controller is None:
+            raise LightError(f"Unknown lamp {ieee}")
+        return controller
+
+    def update_fixture(self, fid: str) -> bool:
+        """A fixture's state and capabilities from its bulbs; True if its state changed."""
+        controller = self.fixtures[fid]
+        bulbs = [self.controllers[m] for m in self.members(fid)]
+        caps = common_caps([b.caps for b in bulbs])
+        self.settings.light_settings(fid).caps = controller.caps = caps
+        before = controller.state
+        controller.state = combined_state([b.state for b in bulbs])
+        reachable = [b.reachable for b in bulbs]
+        controller.reachable = None if not bulbs or None in reachable else any(reachable)
+        errors = [b.last_error for b in bulbs if b.last_error]
+        controller.last_error = errors[0] if bulbs and len(errors) == len(bulbs) else None
+        return before != controller.state
 
     def set_caps(self, ieee: str, caps: LightCaps) -> None:
         self.settings.light_settings(ieee).caps = caps
@@ -100,12 +165,24 @@ class Registry:
             self.controllers[ieee].caps = caps
 
     def paired(self, ieee: str) -> bool:
-        """Known to the radio (in its device database); says nothing about reachability."""
+        """Known to the radio (in its device database); says nothing about reachability.
+        A fixture is paired when all its bulbs are."""
+        if ieee in self.fixtures:
+            members = self.members(ieee)
+            return bool(members) and all(m in self.discovered for m in members)
         return ieee in self.discovered
 
-    def remove(self, ieee: str) -> None:
-        """Forget a device and every reference to it in the settings."""
+    def remove(self, ieee: str) -> list[str]:
+        """Forget a device and every reference to it in the settings. A bulb leaves its
+        fixture, and a fixture left without bulbs goes too; its bulbs (if any) become
+        lamps of their own again. Returns everything removed."""
         settings = self.settings
+        removed = [ieee]
+        fixture = self.fixture_of(ieee)
+        if fixture is not None:
+            settings.devices[fixture].members.remove(ieee)
+            if not settings.devices[fixture].members:
+                removed += self.remove(fixture)
         settings.devices.pop(ieee, None)
         settings.lights.pop(ieee, None)
         self.discovered.pop(ieee, None)
@@ -115,4 +192,5 @@ class Registry:
         settings.remotes = [b for b in settings.remotes if b.remote != ieee]
         for rule in [*settings.motion, *settings.remotes]:
             rule.lights = [x for x in rule.lights if x != ieee]
-        self._sync_controllers()
+        self.sync_controllers()
+        return removed

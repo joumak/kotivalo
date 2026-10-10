@@ -60,6 +60,10 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 
 ### 1. Lamps organised into groups
 
+**Fixtures are done** (2026-10-11): app-level, so each command is sent to every bulb at once. What remains:
+- **Native Zigbee groups:** one multicast instead of one command per bulb, so all spots change at exactly the same moment. Test XStick group sending with the TRÅDFRI GU10s.
+- **Rooms as groups:** e.g. "all living-room lamps".
+
 **Goal:** the living room has three lamps, each with several individually controlled spots. A fixture should act as one lamp.
 
 **Proposed model:** room → group/fixture → lamp. The `Light` protocol gets a group implementation, so the sunrise, UI, motion rules and remotes target "a lamp or a group" the same way.

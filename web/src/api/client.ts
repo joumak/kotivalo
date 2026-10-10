@@ -65,6 +65,9 @@ export const api = {
   stopSunrise: () => request('POST', '/api/sunrise/stop', {}),
   permit: (seconds: number) => request('POST', '/api/permit', { seconds }),
   master: (action: 'on' | 'off') => request('POST', '/api/master', { action }),
+  createFixture: (fixture: { name: string; room: string; members: string[] }) =>
+    request('POST', '/api/fixtures', fixture),
+  updateFixture: (ieee: string, members: string[]) => request('PUT', `/api/fixtures/${ieee}`, { members }),
   weather: (place: WeatherPlace | null) => request('PUT', '/api/weather', place ?? { lat: null, lon: null }),
   searchPlaces,
 }

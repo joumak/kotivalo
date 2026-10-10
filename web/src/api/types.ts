@@ -39,6 +39,7 @@ export interface Lamp {
   has_motion: boolean // a motion sensor controls it
   motion_paused: boolean // switched off by hand: motion waits until the room has been empty
   hand_only: boolean // "Vain käsin": nothing automatic changes it until released (an alarm ends it)
+  members: string[] // a fixture's bulbs; empty for a single bulb
 }
 
 export interface Profile {
@@ -163,7 +164,7 @@ export interface Upcoming {
   skipped: boolean
 }
 
-export type DeviceKind = 'light' | 'motion' | 'remote' | 'other'
+export type DeviceKind = 'light' | 'motion' | 'remote' | 'other' | 'fixture'
 
 export interface DeviceInfo {
   ieee: string
@@ -177,6 +178,8 @@ export interface DeviceInfo {
   initialized: boolean
   paired: boolean
   wakeup: boolean
+  members: string[] // a fixture's bulbs
+  fixture: string | null // the fixture a bulb belongs to
 }
 
 export interface RunRecord {
@@ -189,6 +192,8 @@ export interface RunRecord {
 }
 
 export interface Snapshot {
+  boot: string // changes when the service restarts
+  seq: number // grows with every snapshot of one boot
   now: string
   timezone: string
   clock_synced: boolean | null

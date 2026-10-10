@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Protocol
 
@@ -268,6 +269,14 @@ class LightController:
         if up:
             self.state.on = True
 
+    async def fade(self, level: int, transition_s: float) -> None:
+        """Move a lit lamp to `level` (an off lamp ignores it)."""
+        light = self._require()
+        level = max(MIN_LEVEL, min(MAX_LEVEL, level))
+        await self._run(lambda: light.fade(level, transition_s))
+        if self.state.on:
+            self.state.level = level
+
     async def refresh(self) -> LightState:
         """Read the lamp's actual state (counts toward reachability, not as a command)."""
         light = self._require()
@@ -313,3 +322,84 @@ class LatestWins:
                     waiter.set_result(None)
                 else:
                     waiter.set_exception(error)
+
+
+def combined_state(states: list[LightState]) -> LightState:
+    """Several bulbs as one lamp: on if any is on, at the brightest one's level."""
+    lit = [s for s in states if s.on]
+    if lit:
+        brightest = max(lit, key=lambda s: s.level or 0)
+        return LightState(True, brightest.level, brightest.mireds)
+    on = False if states and all(s.on is False for s in states) else None
+    first = states[0] if states else LightState()
+    return LightState(on, first.level, first.mireds)
+
+
+def common_caps(caps: list[LightCaps]) -> LightCaps:
+    """What every bulb of a fixture can do: warmth only if all have it, in the shared range."""
+    if not caps:
+        return LightCaps()
+    with_ct = [c for c in caps if c.supports_ct]
+    if len(with_ct) != len(caps):
+        return LightCaps(supports_ct=False)
+    low, high = max(c.min_mireds for c in caps), min(c.max_mireds for c in caps)
+    if low > high:
+        return LightCaps(supports_ct=False)
+    return LightCaps(supports_ct=True, min_mireds=low, max_mireds=high)
+
+
+class FixtureLight:
+    """The bulbs of one fixture (a lamp's spots) acting as one lamp: every command goes to
+    all of them at once, each through its own controller, so their states, locks and
+    echo guards stay right. A bulb that doesn't answer doesn't stop the others; only if
+    none answers does the command fail."""
+
+    def __init__(self, members: Callable[[], list[LightController]]):
+        self.members = members
+
+    async def _all(self, what: str, call: Callable[[LightController], Awaitable]) -> None:
+        members = [m for m in self.members() if m.available]
+        if not members:
+            raise LightError("The fixture has no bulbs")
+
+        async def one(member: LightController) -> None:
+            async with member.lock:
+                await call(member)
+
+        results = await asyncio.gather(*(one(m) for m in members), return_exceptions=True)
+        failed = [r for r in results if isinstance(r, BaseException)]
+        for error in failed:
+            if not isinstance(error, LightError):
+                raise error
+        if len(failed) == len(members):
+            raise LightError(f"{what}: no bulb answered ({failed[0]})")
+        if failed:
+            LOGGER.warning("%s: %d of %d bulbs didn't answer", what, len(failed), len(members))
+
+    async def set_level(self, level: int, transition_s: float = 0) -> None:
+        await self._all(f"level {level}", lambda m: m.set_level(level, transition_s))
+
+    async def set_ct(self, mireds: int) -> None:
+        await self._all(f"ct {mireds}", lambda m: m.set_ct(mireds))
+
+    async def on(self) -> None:
+        await self._all("on", lambda m: m.on())
+
+    async def off(self) -> None:
+        await self._all("off", lambda m: m.off())
+
+    async def stop(self) -> None:
+        await self._all("stop", lambda m: m.stop())
+
+    async def fade(self, level: int, transition_s: float) -> None:
+        await self._all(f"fade {level}", lambda m: m.fade(level, transition_s))
+
+    async def move(self, up: bool, rate: int) -> None:
+        await self._all("move", lambda m: m.move(up, rate))
+
+    async def read_state(self) -> LightState:
+        await self._all("read state", lambda m: m.refresh())
+        return combined_state([m.state for m in self.members()])
+
+    async def read_caps(self) -> LightCaps:
+        return common_caps([m.caps for m in self.members()])

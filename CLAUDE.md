@@ -76,6 +76,11 @@ Everything else:
   - `FakeLight`, for tests and `--fake`
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
 - **`behaviour.py`:** the pure owner model (off / manual / motion / sunrise per lamp): motion rules, manual wins, manual off pauses motion until the room has been empty, "let motion control it" (`automatic`), the night window, timers (`tick`, `next_deadline`). Returns actions (`SwitchOn`, `SwitchOff`); `Service._run_actions` performs them. Saved in `state.json`.
+- **Fixtures** (kind "fixture" in `settings.devices`, with `members`):
+  - **Controllers:** `Registry.fixtures` holds one `LightController(FixtureLight)` per fixture; it fans each command out to the member bulbs' controllers, concurrently and under each bulb's lock.
+  - **Lamp lists:** `Registry.lamp_ids()` (fixtures, and bulbs in none) is what users see. Use it, or `is_lamp`, for anything user-facing; `controllers` (bulbs) is for radio work: polling, configuring, reports.
+  - **State:** a bulb's report or poll goes through `_lamp_seen`, which updates its fixture (`Registry.update_fixture`: `combined_state`, `common_caps`).
+  - **Membership:** `Service.update_fixture` moves a bulb's roles to its fixture when it joins.
 - **Hand only** (`LampMemo.hand_only`; `lamp_action(ieee, "hand_only", 1|0)`):
   - `Behaviour.motion` and `tick` skip the lamp.
   - `automatic()` and `sunrise_started()` clear it.

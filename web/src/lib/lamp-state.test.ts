@@ -28,6 +28,7 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   has_motion: false,
   motion_paused: false,
   hand_only: false,
+  members: [],
   ...extra,
 })
 const snapshot = (sunrise: Snapshot['sunrise'] = null) =>

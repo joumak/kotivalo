@@ -12,6 +12,9 @@ async function lamp(request: APIRequestContext, ieee = LAMP) {
   return (await state(request)).lights.find((l: { ieee: string }) => l.ieee === ieee)
 }
 async function reset(request: APIRequestContext) {
+  for (const device of (await state(request)).devices) {
+    if (device.kind === 'fixture') await request.delete(`/api/devices/${device.ieee}`)
+  }
   await request.put(`/api/devices/${LAMP}`, { data: { name: 'Lukuvalo', room: 'Olohuone' } })
   for (const ieee of ['00:00:00:00:00:00:00:01', LAMP, '00:00:00:00:00:00:00:03']) {
     await request.post(`/api/lights/${ieee}`, { data: { action: 'off' } })
@@ -148,4 +151,24 @@ test('hand only keeps motion away from a lamp until released', async ({ page, re
   await page.getByRole('switch', { name: 'Vain käsin' }).click()
   await expect.poll(async () => (await lamp(request)).state.on).toBe(true) // back to motion
   await request.post('/api/fake/event', { data: { type: 'motion', ieee: SENSOR, value: false } })
+})
+
+test('bulbs grouped into a fixture act as one lamp', async ({ page, request }) => {
+  await open(page, '#/devices')
+  await page.getByRole('button', { name: 'Yhdistä valaisimeksi' }).click()
+  await page.getByLabel('Nimi').fill('Lattiavalo')
+  await page.getByRole('switch', { name: 'Lukuvalo' }).click()
+  await page.getByRole('switch', { name: /^Fake panel 0003/ }).click()
+  await page.getByRole('button', { name: 'Tallenna' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.getByText('Osa valaisinta Lattiavalo').first()).toBeVisible()
+
+  await page.evaluate(() => (window.location.hash = '#/lights'))
+  await expect(page.getByRole('button', { name: 'Lattiavalo', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Lukuvalo', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Sytytä Lattiavalo' }).click()
+  const fixture = async () =>
+    (await state(request)).lights.find((l: { name: string }) => l.name === 'Lattiavalo')
+  await expect.poll(async () => (await fixture()).state.on).toBe(true)
+  expect((await fixture()).members).toHaveLength(2)
 })

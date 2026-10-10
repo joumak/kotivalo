@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import secrets
 import signal
 import time
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
@@ -39,6 +41,7 @@ from kotivalo.scheduler import AlarmScheduler, prune_skipped
 from kotivalo.settings import (
     FAKE_PREFIX,
     Alarm,
+    Device,
     MotionRule,
     NightWindow,
     Profile,
@@ -163,6 +166,10 @@ class Service:
         self.weather_fetched: datetime | None = None
         self.fetch_weather = MetClient().fetch  # (lat, lon) -> (json, expires); tests replace it
         self._weather_changed = asyncio.Event()
+        # Snapshots are numbered, so the UI can ignore one that arrives after a newer one
+        # (an action's response racing the live stream); the boot id covers a restart.
+        self._boot = secrets.token_hex(4)
+        self._seq = 0
         self._weather_failures = 0
 
     # --- lifecycle ---------------------------------------------------------------
@@ -273,7 +280,7 @@ class Service:
     def _attach_wakeup(self) -> None:
         """Point the sunrise at the wake-up lamp. Only while no sunrise is running."""
         ieee = self.settings.wakeup.light
-        controller = self.registry.controllers.get(ieee) if ieee else None
+        controller = self.registry.controller(ieee) if self.registry.is_lamp(ieee) else None
         self.manager.controller = controller or LightController(None)
 
     async def _refresh_all(self) -> None:
@@ -290,7 +297,10 @@ class Service:
             return False
 
         lamps = [(i, c) for i, c in self.registry.controllers.items() if c.available]
-        if any(await asyncio.gather(*(refresh(i, c) for i, c in lamps))):
+        changed = any(await asyncio.gather(*(refresh(i, c) for i, c in lamps)))
+        for fixture in self.registry.fixture_ids():
+            self.registry.update_fixture(fixture)
+        if changed:
             self._save_settings()
 
     async def _radio_watch(self) -> None:
@@ -502,7 +512,13 @@ class Service:
 
     def _lamp_seen(self, ieee: str, was_on: bool | None) -> None:
         """A report or a poll showed the lamp's real state: let the owner model follow
-        changes made outside the service (a wall switch)."""
+        changes made outside the service (a wall switch). A bulb in a fixture updates
+        the fixture, which is the lamp the owner model knows."""
+        fixture = self.registry.fixture_of(ieee)
+        if fixture is not None:
+            was_on = self.registry.fixtures[fixture].state.on
+            self.registry.update_fixture(fixture)
+            ieee = fixture
         on = self.registry.controller(ieee).state.on
         if on is not None and on != was_on:
             self.behaviour.lamp_state(ieee, on, self.clock.now())
@@ -511,7 +527,8 @@ class Service:
     def _reconcile_owners(self) -> None:
         """At startup: owners from state.json against what the lamps actually do."""
         now = self.clock.now()
-        for ieee, controller in self.registry.controllers.items():
+        for ieee in self.registry.lamp_ids():
+            controller = self.registry.controller(ieee)
             if controller.state.on is not None:
                 self.behaviour.lamp_state(ieee, controller.state.on, now)
         self._behaviour_saved()
@@ -592,8 +609,11 @@ class Service:
 
     async def _refresh_soon(self, ieee: str) -> None:
         await asyncio.sleep(ANNOUNCE_SETTLE_S)  # give a booting lamp a moment
+        controller = self.registry.controller(ieee)
+        was_on = controller.state.on
         with contextlib.suppress(LightError, TimeoutError):
-            await self._poll_lamp(self.registry.controller(ieee))
+            await self._poll_lamp(controller)
+        self._lamp_seen(ieee, was_on)
 
     async def _poll_lamp(self, controller: LightController) -> None:
         try:
@@ -638,16 +658,19 @@ class Service:
         return light_settings.power_on == "previous"
 
     async def _apply_power_on(self, ieee: str) -> None:
-        """Set the policy in the settings (caller saves) and write it to the lamp."""
+        """Set the policy in the settings (caller saves) and write it to the lamp (to
+        each bulb of a fixture)."""
         previous = self._set_power_on_policy(ieee)
-        light = self.registry.controller(ieee).light
-        if hasattr(light, "set_power_on"):
-            await light.set_power_on(previous=previous)
+        for bulb in self.registry.members(ieee) if ieee in self.registry.fixtures else [ieee]:
+            self.settings.light_settings(bulb).power_on = "previous" if previous else "on"
+            light = self.registry.controllers[bulb].light
+            if hasattr(light, "set_power_on"):
+                await light.set_power_on(previous=previous)
 
     async def _finished(self, run: Run, result: str) -> None:
         if result == "interrupted":
             return  # process shutdown: resume after restart
-        if run.light and run.light in self.registry.controllers:
+        if run.light and self.registry.is_lamp(run.light):
             lamp_on = self.registry.controller(run.light).state.on is True
             self.behaviour.sunrise_ended(run.light, lamp_on, self.clock.now())
             self._behaviour_saved()
@@ -780,7 +803,7 @@ class Service:
     def _remote_lamps(self, remote: str) -> list[str]:
         binding = next((b for b in self.settings.remotes if b.remote == remote), None)
         lights = binding.lights if binding else []
-        return [ieee for ieee in lights if ieee in self.registry.controllers]
+        return [ieee for ieee in lights if self.registry.is_lamp(ieee)]
 
     def _remote_pressed(self, remote: str, action: str) -> None:
         """A remote's button: every lamp it controls follows (manual wins)."""
@@ -996,7 +1019,7 @@ class Service:
         if self._kind(remote) != "remote":
             raise SettingsError(f"{remote} is not a remote")
         lights = [str(x) for x in data.get("lights", [])]
-        if not_lamps := [ieee for ieee in lights if ieee not in self.registry.controllers]:
+        if not_lamps := [ieee for ieee in lights if not self.registry.is_lamp(ieee)]:
             raise SettingsError(f"Not lamps: {', '.join(not_lamps)}")
         others = [b for b in self.settings.remotes if b.remote != remote]
         self.settings.remotes = [*others, RemoteBinding(remote, list(dict.fromkeys(lights)))]
@@ -1047,7 +1070,8 @@ class Service:
 
     async def _master_off(self) -> None:
         memory = {}
-        for ieee, controller in self.registry.controllers.items():
+        for ieee in self.registry.lamp_ids():
+            controller = self.registry.controller(ieee)
             state = controller.state
             if state.on is True:
                 kelvin = mired_to_kelvin(state.mireds) if state.mireds else None
@@ -1060,19 +1084,20 @@ class Service:
             self.state.master = memory
             self.store.save_state(self.state)
         LOGGER.info("Master off: remembering %s", list(memory) or "nothing new")
-        for ieee, controller in self.registry.controllers.items():
+        for ieee in self.registry.lamp_ids():
+            controller = self.registry.controller(ieee)
             if controller.state.on is not False and controller.available:
                 await self.lamp_action(ieee, "off")  # fades out in the background
 
     async def _master_on(self) -> None:
         memory = self.state.master
         if not memory:
-            memory = {ieee: {"owner": "manual"} for ieee in self.registry.light_ieees()}
+            memory = {ieee: {"owner": "manual"} for ieee in self.registry.lamp_ids()}
         LOGGER.info("Master on: restoring %s", list(memory))
         jobs = []
         for ieee, saved in memory.items():
-            if ieee not in self.registry.controllers:
-                continue  # removed since
+            if not self.registry.is_lamp(ieee):
+                continue  # removed since, or now part of a fixture
             hand_only = self.behaviour.lamp(ieee).hand_only
             if (
                 saved.get("owner") == "motion"
@@ -1097,8 +1122,10 @@ class Service:
 
     def master_status(self) -> dict:
         return {
-            "any_on": any(c.state.on is True for c in self.registry.controllers.values()),
-            "remembered": sorted(i for i in self.state.master if i in self.registry.controllers),
+            "any_on": any(
+                self.registry.controller(i).state.on is True for i in self.registry.lamp_ids()
+            ),
+            "remembered": sorted(i for i in self.state.master if self.registry.is_lamp(i)),
         }
 
     def _remember_manual(self, ieee: str, action: str, value: int) -> None:
@@ -1146,14 +1173,14 @@ class Service:
         self._sunrise_started(run)
 
     async def set_wakeup_light(self, ieee: str | None) -> None:
-        if ieee is not None:
-            self.registry.controller(ieee)  # must be a known lamp
+        if ieee is not None and not self.registry.is_lamp(ieee):
+            raise SettingsError(f"{ieee} is not a lamp")
         previous = self.settings.wakeup.light
         if ieee == previous:
             return
         await self.stop_sunrise("wake-up lamp changed")
         self.settings.wakeup.light = ieee
-        lamps = [x for x in (ieee, previous) if x is not None and x in self.registry.controllers]
+        lamps = [x for x in (ieee, previous) if self.registry.is_lamp(x)]
         for lamp in lamps:
             self._set_power_on_policy(lamp)
         self._save_settings()
@@ -1209,8 +1236,8 @@ class Service:
         if device is None or device.kind != "motion":
             raise SettingsError(f"{sensor} is not a motion sensor")
         lights = [str(x) for x in data.get("lights", [])]
-        for ieee in lights:
-            self.registry.controller(ieee)  # must be a lamp
+        if not_lamps := [ieee for ieee in lights if not self.registry.is_lamp(ieee)]:
+            raise SettingsError(f"Not lamps: {', '.join(not_lamps)}")
         rule = MotionRule(
             sensor=sensor,
             lights=lights,
@@ -1248,19 +1275,83 @@ class Service:
             device.room = room
         self._save_settings()
 
+    # --- fixtures ----------------------------------------------------------------------
+
+    def create_fixture(self, data: dict) -> str:
+        """A lamp made of several bulbs (e.g. its spots), which then act as one."""
+        name = str(data.get("name", "")).strip()
+        if not 1 <= len(name) <= MAX_NAME_LEN:
+            raise SettingsError(f"Name must be 1-{MAX_NAME_LEN} characters")
+        fid = f"fixture-{secrets.token_hex(3)}"
+        room = str(data.get("room", "")).strip()[:MAX_NAME_LEN]
+        self.settings.devices[fid] = Device(name=name, room=room, kind="fixture")
+        try:
+            self.update_fixture(fid, data)
+        except SettingsError:
+            self.settings.devices.pop(fid, None)
+            self.settings.lights.pop(fid, None)
+            self.registry.remove(fid)
+            raise
+        LOGGER.info("New fixture %s: %s", name, self.settings.devices[fid].members)
+        return fid
+
+    def update_fixture(self, fid: str, data: dict) -> None:
+        """Which bulbs a fixture has. Bulbs joining it hand their roles to the fixture
+        (wake-up lamp, motion rules, remotes); bulbs leaving it become lamps of their own."""
+        device = self.settings.devices.get(fid)
+        if device is None or device.kind != "fixture":
+            raise SettingsError(f"{fid} is not a fixture")
+        members = list(dict.fromkeys(str(m) for m in data.get("members", device.members)))
+        if not members:
+            raise SettingsError("A fixture needs at least one bulb")
+        for m in members:
+            if m not in self.registry.controllers:
+                raise SettingsError(f"{m} is not a bulb")
+            other = self.registry.fixture_of(m)
+            if other not in (None, fid):
+                raise SettingsError(f"{m} is already in {self.settings.devices[other].name}")
+        joining = [m for m in members if m not in device.members]
+        settings = self.settings
+        before = (list(device.members), settings.wakeup.light, deepcopy(settings.motion))
+        before_remotes = deepcopy(settings.remotes)
+        device.members = members
+        if settings.wakeup.light in joining:
+            settings.wakeup.light = fid
+        for rule in [*settings.motion, *settings.remotes]:
+            if any(m in rule.lights for m in joining):
+                kept = [x for x in rule.lights if x not in joining]
+                rule.lights = kept if fid in kept else [*kept, fid]
+        try:
+            self._save_settings()  # validates: one fixture per bulb, one rule per lamp
+        except SettingsError:
+            device.members, settings.wakeup.light, settings.motion = before
+            settings.remotes = before_remotes
+            raise
+        for m in joining:
+            self.behaviour.lamps.pop(m, None)
+            self.state.master.pop(m, None)
+            self._live.pop(m, None)
+        self.registry.sync_controllers()
+        self._attach_wakeup()
+        controller = self.registry.controller(fid)
+        if controller.state.on is not None:
+            self.behaviour.lamp_state(fid, controller.state.on, self.clock.now())
+        self._behaviour_saved()
+
     async def remove_device(self, ieee: str) -> None:
         if ieee not in self.settings.devices:
             raise SettingsError(f"Unknown device {ieee}")
         if ieee == self.settings.wakeup.light:
             await self.stop_sunrise("lamp removed")
-        if self.zigbee is not None and not is_fake(ieee):
+        is_fixture = self.settings.devices[ieee].kind == "fixture"
+        if self.zigbee is not None and not is_fake(ieee) and not is_fixture:
             import zigpy.types
 
             await self.zigbee.remove(zigpy.types.EUI64.convert(ieee))  # leave runs in background
-        self.registry.remove(ieee)
-        self._live.pop(ieee, None)
-        self.behaviour.lamps.pop(ieee, None)
-        self.behaviour.sensors.pop(ieee, None)
+        for gone in self.registry.remove(ieee):
+            self._live.pop(gone, None)
+            self.behaviour.lamps.pop(gone, None)
+            self.behaviour.sensors.pop(gone, None)
         self._attach_wakeup()
         self._save_settings()
 
@@ -1285,7 +1376,7 @@ class Service:
     # --- state for the UI --------------------------------------------------------------
 
     def lamp_status(self, ieee: str) -> dict:
-        controller = self.registry.controllers[ieee]
+        controller = self.registry.controller(ieee)
         device = self.settings.devices[ieee]
         return {
             "ieee": ieee,
@@ -1299,6 +1390,7 @@ class Service:
             **self._owner_fields(ieee),
             "wakeup": ieee == self.settings.wakeup.light,
             "power_on": self.settings.light_settings(ieee).power_on,
+            "members": self.registry.members(ieee) if ieee in self.registry.fixtures else [],
         }
 
     def _owner_fields(self, ieee: str) -> dict:
@@ -1362,9 +1454,11 @@ class Service:
                     "nwk": found.nwk if found else None,
                     "last_seen": found.last_seen if found else None,
                     "initialized": found.initialized if found else False,
-                    "paired": found is not None,
+                    "paired": self.registry.paired(ieee),
                     "is_light": device.kind == "light",
                     "wakeup": ieee == self.settings.wakeup.light,
+                    "members": list(device.members),
+                    "fixture": self.registry.fixture_of(ieee),
                 }
             )
         return result
@@ -1378,12 +1472,15 @@ class Service:
         pairing = self.pairing_until if self._pairing_open() else None
         alarms = [asdict(a) for a in wakeup.alarms]
         ramp = asdict(wakeup.ramp)
+        self._seq += 1
         return {
+            "boot": self._boot,
+            "seq": self._seq,
             "now": now.isoformat(),
             "timezone": settings.timezone,
             "clock_synced": self.clock_synced,
             "radio": {"type": settings.radio.type, "fake": self.fake},
-            "lights": [self.lamp_status(ieee) for ieee in self.registry.light_ieees()],
+            "lights": [self.lamp_status(ieee) for ieee in self.registry.lamp_ids()],
             "wakeup": {"light": wakeup.light, "alarms": alarms, "ramp": ramp},
             "night": asdict(settings.night),
             "sensors": self.sensor_list(),

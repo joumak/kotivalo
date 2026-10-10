@@ -1,4 +1,14 @@
-import { Activity, CircleHelp, Gamepad2, Lightbulb, Pencil, SlidersHorizontal, Sunrise, Trash2 } from 'lucide-react'
+import {
+  Activity,
+  CircleHelp,
+  Gamepad2,
+  LampCeiling,
+  Lightbulb,
+  Pencil,
+  SlidersHorizontal,
+  Sunrise,
+  Trash2,
+} from 'lucide-react'
 import { useState } from 'react'
 
 import { useActions } from '@/api/actions'
@@ -35,7 +45,7 @@ import { useNow } from '@/lib/screen'
 import { cn } from '@/lib/utils'
 
 const KINDS: DeviceKind[] = ['light', 'motion', 'remote', 'other']
-const ICONS = { light: Lightbulb, motion: Activity, remote: Gamepad2, other: CircleHelp }
+const ICONS = { light: Lightbulb, motion: Activity, remote: Gamepad2, other: CircleHelp, fixture: LampCeiling }
 const PAIR_SECONDS = 254
 
 export function DevicesPage() {
@@ -46,6 +56,7 @@ export function DevicesPage() {
   const [motion, setMotion] = useState<Sensor | null>(null)
   const [remote, setRemote] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [fixture, setFixture] = useState<DeviceInfo | 'new' | null>(null)
   if (!snapshot) return null
 
   const rooms = [...new Set(snapshot.devices.map((d) => d.room).filter(Boolean))].sort()
@@ -58,15 +69,24 @@ export function DevicesPage() {
       {snapshot.devices.length === 0 && <p className="text-muted-foreground">{t.devices.empty}</p>}
       <div className="flex max-w-3xl flex-col gap-7">
         {KINDS.map((kind) => {
-          const list = snapshot.devices.filter((d) => d.kind === kind)
+          // Fixtures come first among the lamps, each followed by its bulbs.
+          const list =
+            kind === 'light' ? lampsWithFixtures(snapshot.devices) : snapshot.devices.filter((d) => d.kind === kind)
           if (list.length === 0) return null
+          const bulbs = snapshot.devices.filter((d) => d.kind === 'light')
           return (
             <section key={kind}>
-              <h2 className="mb-3 text-lg font-medium text-muted-foreground">{t.devices.kinds[kind]}</h2>
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <h2 className="text-lg font-medium text-muted-foreground">{t.devices.kinds[kind]}</h2>
+                {kind === 'light' && bulbs.length > 1 && (
+                  <Button variant="outline" size="sm" onClick={() => setFixture('new')}>
+                    <LampCeiling data-icon="inline-start" />
+                    {t.fixture.create}
+                  </Button>
+                )}
+              </div>
               <ul className="divide-y rounded-2xl border bg-card">
-                {list
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map((device) => (
+                {list.map((device) => (
                     <DeviceRow
                       key={device.ieee}
                       device={device}
@@ -76,6 +96,8 @@ export function DevicesPage() {
                       onRemove={() => setRemoving(device)}
                       onMotion={(sensor) => setMotion(sensor)}
                       onRemote={(r) => setRemote(r.ieee)}
+                      onFixture={() => setFixture(device)}
+                      fixtureName={snapshot.devices.find((d) => d.ieee === device.fixture)?.name}
                     />
                   ))}
               </ul>
@@ -88,8 +110,27 @@ export function DevicesPage() {
       {removing && <RemoveDialog device={removing} onClose={() => setRemoving(null)} />}
       {editing && <MotionDialog sensor={editing} snapshot={snapshot} onClose={() => setMotion(null)} />}
       {editingRemote && <RemoteDialog remote={editingRemote} snapshot={snapshot} onClose={() => setRemote(null)} />}
+      {fixture && (
+        <FixtureDialog
+          fixture={fixture === 'new' ? null : (snapshot.devices.find((d) => d.ieee === fixture.ieee) ?? null)}
+          devices={snapshot.devices}
+          rooms={rooms}
+          onClose={() => setFixture(null)}
+        />
+      )}
     </>
   )
+}
+
+/** Lamps for the device list: each fixture followed by its bulbs, then the other bulbs. */
+function lampsWithFixtures(devices: DeviceInfo[]): DeviceInfo[] {
+  const byName = (a: DeviceInfo, b: DeviceInfo) => a.name.localeCompare(b.name)
+  const fixtures = devices.filter((d) => d.kind === 'fixture').sort(byName)
+  const single = devices.filter((d) => d.kind === 'light' && !d.fixture).sort(byName)
+  return [
+    ...fixtures.flatMap((f) => [f, ...devices.filter((d) => d.fixture === f.ieee).sort(byName)]),
+    ...single,
+  ]
 }
 
 function pairingLeft(snapshot: Snapshot, now: Date): number {
@@ -187,9 +228,11 @@ interface DeviceRowProps {
   onRemove: () => void
   onMotion: (sensor: Sensor) => void
   onRemote: (remote: Remote) => void
+  onFixture: () => void
+  fixtureName?: string
 }
 
-function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRemote }: DeviceRowProps) {
+function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRemote, onFixture, fixtureName }: DeviceRowProps) {
   const t = useT()
   const actions = useActions()
   const now = useNow(60000)
@@ -213,7 +256,9 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
             : seen,
           remote.battery !== null ? t.sensor.battery(remote.battery) : null,
         ]
-      : [device.wakeup ? t.lamp.wakeupLamp : null, seen]
+      : device.kind === 'fixture'
+        ? [t.fixture.count(device.members.length), device.wakeup ? t.lamp.wakeupLamp : null]
+        : [fixtureName ? t.fixture.partOf(fixtureName) : null, device.wakeup ? t.lamp.wakeupLamp : null, seen]
   // What to do next, on a line of its own.
   const firmware = remote?.firmware
   const hint = firmware
@@ -228,7 +273,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
           ? t.remote.noLamps
           : null
   return (
-    <li className="flex items-center gap-4 px-4 py-3">
+    <li className={cn('flex items-center gap-4 px-4 py-3', device.fixture && 'pl-10')}>
       <Icon
         className={cn(
           'size-5 shrink-0',
@@ -263,7 +308,18 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
             <SlidersHorizontal />
           </Button>
         )}
-        {device.kind === 'light' && !device.wakeup && (
+        {device.kind === 'fixture' && (
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={t.fixture.settings(device.name)}
+            title={t.fixture.settings(device.name)}
+            onClick={onFixture}
+          >
+            <SlidersHorizontal />
+          </Button>
+        )}
+        {((device.kind === 'light' && !device.fixture) || device.kind === 'fixture') && !device.wakeup && (
           <Button
             size="icon"
             variant="ghost"
@@ -594,7 +650,9 @@ function RemoveDialog({ device, onClose }: { device: DeviceInfo; onClose: () => 
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{t.devices.removeTitle(device.name)}</AlertDialogTitle>
-          <AlertDialogDescription>{t.devices.removeBody}</AlertDialogDescription>
+          <AlertDialogDescription>
+            {device.kind === 'fixture' ? t.devices.removeFixtureBody : t.devices.removeBody}
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t.wakeup.cancel}</AlertDialogCancel>
@@ -607,5 +665,104 @@ function RemoveDialog({ device, onClose }: { device: DeviceInfo; onClose: () => 
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/** Group bulbs (a lamp's spots) into a fixture, or change a fixture's bulbs. */
+function FixtureDialog({
+  fixture,
+  devices,
+  rooms,
+  onClose,
+}: {
+  fixture: DeviceInfo | null
+  devices: DeviceInfo[]
+  rooms: string[]
+  onClose: () => void
+}) {
+  const t = useT()
+  const actions = useActions()
+  const [name, setName] = useState('')
+  const [room, setRoom] = useState('')
+  const [members, setMembers] = useState<string[]>(fixture?.members ?? [])
+  const bulbs = devices.filter((d) => d.kind === 'light').sort((a, b) => a.name.localeCompare(b.name))
+  const save = async () => {
+    const done = fixture
+      ? await actions.updateFixture(fixture.ieee, members)
+      : await actions.createFixture({ name: name.trim(), room: room.trim(), members })
+    if (done) onClose()
+  }
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{fixture ? t.fixture.settings(fixture.name) : t.fixture.title}</DialogTitle>
+          <DialogDescription>{t.fixture.help}</DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void save()
+          }}
+        >
+          {!fixture && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="fixture-name">{t.devices.name}</Label>
+                <Input id="fixture-name" value={name} maxLength={40} required onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="fixture-room">{t.devices.room}</Label>
+                <Input
+                  id="fixture-room"
+                  value={room}
+                  maxLength={40}
+                  list="fixture-rooms"
+                  placeholder={t.devices.roomHint}
+                  onChange={(e) => setRoom(e.target.value)}
+                />
+                <datalist id="fixture-rooms">
+                  {rooms.map((r) => (
+                    <option key={r} value={r} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+          )}
+          <fieldset className="flex flex-col gap-1">
+            <legend className="mb-2 text-sm text-muted-foreground">{t.fixture.bulbs}</legend>
+            {bulbs.map((bulb) => {
+              const other = bulb.fixture && bulb.fixture !== fixture?.ieee ? devices.find((d) => d.ieee === bulb.fixture) : undefined
+              const id = `fixture-bulb-${bulb.ieee}`
+              return (
+                <div key={bulb.ieee} className="flex items-center justify-between gap-4 py-1.5">
+                  <Label htmlFor={id} className={cn('flex flex-col items-start gap-0.5 text-base', other && 'opacity-50')}>
+                    {bulb.name}
+                    {other && <span className="text-sm text-muted-foreground">{t.fixture.inOther(other.name)}</span>}
+                  </Label>
+                  <Switch
+                    id={id}
+                    disabled={!!other}
+                    checked={members.includes(bulb.ieee)}
+                    onCheckedChange={(on) =>
+                      setMembers(on ? [...members, bulb.ieee] : members.filter((m) => m !== bulb.ieee))
+                    }
+                  />
+                </div>
+              )
+            })}
+          </fieldset>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              {t.wakeup.cancel}
+            </Button>
+            <Button type="submit" disabled={members.length === 0 || (!fixture && !name.trim())}>
+              {t.fixture.save}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

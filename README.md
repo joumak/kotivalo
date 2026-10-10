@@ -53,6 +53,17 @@ Every lamp has one owner at a time. The lamp's status line in the UI says which:
 
 **"On" restores the last brightness and warmth set by hand,** from the UI or a remote.
 
+## Fixtures: several bulbs as one lamp
+
+A lamp with several smart bulbs, like a fitting with GU10 spots, works best as a **fixture** (*valaisin*). Its bulbs then act as one lamp: one tile and one set of sliders. Motion rules, remotes, the wake-up lamp, "Hand only" and the master switch all treat it like any other lamp.
+
+1. Pair the bulbs: switch the lamp off and on 6 times. All its spots reset together and join while pairing is open.
+2. Under **Laitteet → Valot**, tap **Yhdistä valaisimeksi** ("Group into a fixture"), give it a name and room, and choose its bulbs.
+
+Each command goes to every bulb at once. The fixture counts as on if any of its bulbs is on, at the brightest one's level. If a bulb doesn't answer, the others still follow. A bulb's roles (motion rule, remote, wake-up lamp) pass to its fixture. Removing a fixture makes its bulbs lamps of their own again.
+
+**Buying bulbs:** IKEA's **TRÅDFRI** smart bulbs (e.g. GU10 345 lm white spectrum) are Zigbee and work with the XStick. IKEA's newer **KAJPLATS** range is Matter over Thread, which the XStick can't use. Its Zigbee mode is unofficial and stripped down, so avoid it. Ordinary bulbs like **SOLHETTA** have no radio at all.
+
 ## All lamps at once
 
 **Kaikki pois** ("All off") on the Lights page and the wall panel:

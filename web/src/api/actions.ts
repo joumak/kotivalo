@@ -45,6 +45,8 @@ export function useActions() {
       permit: (seconds: number) => run(api.permit(seconds)),
       weather: (place: Parameters<typeof api.weather>[0]) => run(api.weather(place)),
       master: (action: 'on' | 'off') => run(api.master(action)),
+      createFixture: (fixture: Parameters<typeof api.createFixture>[0]) => run(api.createFixture(fixture)),
+      updateFixture: (ieee: string, members: string[]) => run(api.updateFixture(ieee, members)),
     }
   }, [live, t])
 }

@@ -109,3 +109,10 @@ async def test_with_nothing_remembered_every_lamp_comes_on(setup):
 async def test_unknown_actions_are_refused(setup):
     service, client, clock = setup
     assert (await client.post("/api/master", json={"action": "toggle"})).status == 400
+
+
+async def test_snapshots_are_numbered(setup):
+    service, client, clock = setup
+    first = await (await client.get("/api/state")).json()
+    second = await (await client.get("/api/state")).json()
+    assert first["boot"] == second["boot"] and second["seq"] > first["seq"]

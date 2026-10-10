@@ -29,15 +29,23 @@ export class LiveState {
     this.listeners.forEach((listener) => listener())
   }
 
-  /** A fresher snapshot, e.g. the response to an action. */
-  apply = (snapshot: Snapshot) => this.update({ snapshot })
+  /** A snapshot, e.g. the response to an action. An older one than shown is ignored: an
+   * action's response can arrive after the live stream already pushed what followed. */
+  apply = (snapshot: Snapshot) => {
+    const current = this.view.snapshot
+    if (current && snapshot.boot === current.boot && snapshot.seq < current.seq) return
+    this.update({ snapshot })
+  }
 
   connect = () => {
     this.source?.close()
     const source = new EventSource(eventsUrl())
     this.source = source
     source.onopen = () => this.update({ connection: 'live' })
-    source.onmessage = (event) => this.update({ snapshot: JSON.parse(event.data), connection: 'live' })
+    source.onmessage = (event) => {
+      this.update({ connection: 'live' })
+      this.apply(JSON.parse(event.data))
+    }
     source.onerror = () => {
       // EventSource retries by itself; find out whether it is an access-code problem.
       this.update({ connection: 'offline' })

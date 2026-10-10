@@ -26,7 +26,7 @@ SETTINGS_VERSION = 2
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 RADIO_TYPES = ("xbee", "ezsp", "znp")
-DEVICE_KINDS = ("light", "motion", "remote", "other")
+DEVICE_KINDS = ("light", "motion", "remote", "other", "fixture")
 POWER_ON = ("on", "previous")  # what a lamp does when mains power returns
 FAKE_PREFIX = "00:00:00:00:00:00:00:"  # `serve --fake` devices: never saved
 
@@ -118,6 +118,7 @@ class Device:
     manufacturer: str | None = None
     endpoint: int | None = None  # the light endpoint, for lamps
     configured: bool = False  # bindings and reporting set up (later phases)
+    members: list[str] = field(default_factory=list)  # a fixture's bulbs (kind "fixture")
 
 
 @dataclass
@@ -215,9 +216,18 @@ class Settings:
         _check_time(self.night.start, "Night start")
         _check_time(self.night.end, "Night end")
         self.weather.validate()
+        member_of: dict[str, str] = {}
         for ieee, device in self.devices.items():
             if device.kind not in DEVICE_KINDS:
                 raise SettingsError(f"{ieee}: unknown device kind {device.kind!r}")
+            if device.kind != "fixture" and device.members:
+                raise SettingsError(f"{ieee}: only a fixture has bulbs")
+            for member in device.members:
+                if self.devices.get(member) is None or self.devices[member].kind != "light":
+                    raise SettingsError(f"{device.name}: {member} is not a lamp")
+                if member in member_of:
+                    raise SettingsError(f"{member} is already in another fixture")
+                member_of[member] = ieee
         for ieee, light in self.lights.items():
             if light.power_on not in POWER_ON:
                 raise SettingsError(f"{ieee}: power_on must be one of {POWER_ON}")
@@ -242,21 +252,32 @@ class Settings:
         return settings
 
     def to_dict(self) -> dict[str, Any]:
-        """Everything except the `serve --fake` devices."""
+        """Everything except the `serve --fake` devices (and fixtures made of them)."""
         data = asdict(self)
-        data["devices"] = {k: v for k, v in data["devices"].items() if not is_fake(k)}
-        data["lights"] = {k: v for k, v in data["lights"].items() if not is_fake(k)}
-        if is_fake(data["wakeup"]["light"]):
+        fake_fixtures = {
+            ieee
+            for ieee, d in self.devices.items()
+            if d.kind == "fixture" and d.members and all(is_fake(m) for m in d.members)
+        }
+
+        def fake(ieee: str | None) -> bool:
+            return is_fake(ieee) or ieee in fake_fixtures
+
+        data["devices"] = {k: v for k, v in data["devices"].items() if not fake(k)}
+        for device in data["devices"].values():
+            device["members"] = [m for m in device["members"] if not fake(m)]
+        data["lights"] = {k: v for k, v in data["lights"].items() if not fake(k)}
+        if fake(data["wakeup"]["light"]):
             data["wakeup"]["light"] = None
         data["motion"] = [
-            {**rule, "lights": [x for x in rule["lights"] if not is_fake(x)]}
+            {**rule, "lights": [x for x in rule["lights"] if not fake(x)]}
             for rule in data["motion"]
-            if not is_fake(rule["sensor"])
+            if not fake(rule["sensor"])
         ]
         data["remotes"] = [
-            {**bind, "lights": [x for x in bind["lights"] if not is_fake(x)]}
+            {**bind, "lights": [x for x in bind["lights"] if not fake(x)]}
             for bind in data["remotes"]
-            if not is_fake(bind["remote"])
+            if not fake(bind["remote"])
         ]
         return data
 

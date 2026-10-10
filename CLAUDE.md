@@ -49,7 +49,9 @@ CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `
 - **Minimum level is 2.** Level 1 switches it off.
 - **Never send a colour-temperature (CT) command with a transition.** It freezes the light until the transition ends. Send CT with transition 0.
 - **One transition at a time.** A new command cancels the running transition. Never overlap CT and level changes: send CT first, wait ~0.3 s, then the level.
-- **CT is ignored while the light is off.** Switch it on first.
+- **While off** (tested on panel 2, firmware 1.2.217, 2026-10-10):
+  - **Brightness can't be preset.** ExecuteIfOff is ignored for Level Control, both per command (`options_mask`/`options_override`) and as the `options` attribute. The attribute is writable, but has no effect.
+  - **Colour temperature can.** A plain `move_to_color_temp` changes the stored `color_temperature` even without the flag. Whether the lamp then lights at that value is not yet confirmed by eye, so the code still sets CT 0.5 s after switching on.
 - **Switch off with plain `on_off.off()`.** An off with a transition can leave IKEA lights on.
 
 **asyncio:**

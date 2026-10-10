@@ -52,7 +52,7 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 
 - **The service hung at startup with no Zigbee router powered.** `TolerantPermit`, the database close on failure, and the systemd watchdog fixed it (`9263e24`).
 - **The UI showed only the last commanded state.** Lamps now report on/off, level and warmth; polling and Device_annce catch the rest.
-- **The wake-up lamp flashed at the next start.** It is now parked at warm and minimum level before switching off, and "on" restores the last manual setting.
+- **The wake-up lamp flashed at the next start.** It is now parked at warm and minimum level before switching off, and "on" restores the last manual setting. Some visible steps remain (see feature 5).
 
 ---
 
@@ -98,12 +98,28 @@ A Sonoff ZBDongle-E (EZSP) or ZBDongle-P (ZNP) would bring:
 
 The code talks to zigpy's generic API, so swapping is a settings change plus re-pairing (see the README).
 
-### 5. Weather ideas
+### 5. Flash-free switch-on
+
+**Today:**
+- Before the wake-up lamp switches off, it is parked at warm and minimum brightness. That shows as a brief dim-down.
+- "On" sets the remembered brightness, then the warmth 0.5 s later. That shows as a brief warm moment.
+
+**Tested on the FLOALT (firmware 1.2.217), with the lamp off:**
+- Colour temperature can be set and is stored.
+- Brightness can't be set, with or without ExecuteIfOff.
+
+**If an eye-check confirms the lamp lights at the stored warmth:**
+- Send the warmth *before* "on" and before a sunrise or night-light start, which removes the warm moment.
+- Park other lamps' warmth *after* they are off, so the shift isn't visible.
+
+The brightness parking of the wake-up lamp has to stay, unless newer FLOALT firmware supports ExecuteIfOff (the OTA risk applies to lamps, see CLAUDE.md).
+
+### 6. Weather ideas
 
 - The forecast for the next alarm time on the Herätys page ("Aamulla 6.30: 🌧 3°").
 - FMI's measured temperature from the nearest station, as "now" in Finland, if yr.no's model value feels off.
 
-### 6. HTTPS on the LAN and an installable app
+### 7. HTTPS on the LAN and an installable app
 
 - A local CA (mkcert) would enable the Wake Lock API, so the wall panel's screen stays on without kiosk apps.
 - It would also make the UI installable as an app (PWA).

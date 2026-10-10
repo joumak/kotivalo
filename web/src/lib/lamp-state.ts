@@ -24,12 +24,13 @@ export function lampStatus(lamp: Lamp, snapshot: Snapshot, t: Messages): string 
     if (run.phase === 'hold') return run.off ? t.lamp.sunriseHold(time(run.off)) : t.lamp.sunriseDone
     return t.lamp.sunrise(time(run.end))
   }
-  if (!isLit(lamp)) return t.lamp.off
+  if (!isLit(lamp)) return lamp.has_motion && lamp.motion_paused ? t.lamp.offMotionPaused : t.lamp.off
   if (lamp.owner === 'motion') {
     const status = lamp.profile === 'night' ? t.lamp.nightLight : t.lamp.motionOn
     return lamp.owner_until ? t.lamp.offAt(status, time(lamp.owner_until)) : status
   }
   const level = t.lamp.level(levelPercent(lamp.state.level))
+  if (lamp.has_motion && lamp.owner === 'manual') return `${t.lamp.byHand}, ${level}`
   return lamp.caps.supports_ct && lamp.state.kelvin
     ? `${level}, ${t.lamp.kelvin(lamp.state.kelvin)}`
     : level

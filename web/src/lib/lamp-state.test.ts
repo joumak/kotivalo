@@ -26,6 +26,7 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   owner_until: null,
   profile: null,
   has_motion: false,
+  motion_paused: false,
   ...extra,
 })
 const snapshot = (sunrise: Snapshot['sunrise'] = null) =>
@@ -57,5 +58,14 @@ describe('motion status', () => {
     expect(lampStatus(motion, snapshot(), fi)).toBe('Liikkeestä päällä, sammuu klo 18.32')
     const night = lamp({ level: 13 }, { owner: 'motion', profile: 'night', owner_until: null })
     expect(lampStatus(night, snapshot(), en)).toBe('Night light')
+  })
+})
+
+describe('lamps with a motion sensor', () => {
+  it('say when they are on by hand, or when motion is paused', () => {
+    const manual = lamp({ level: 254 }, { owner: 'manual', has_motion: true })
+    expect(lampStatus(manual, snapshot(), fi)).toBe('Käsin päällä, 100 %')
+    const paused = lamp({ on: false }, { owner: 'off', has_motion: true, motion_paused: true })
+    expect(lampStatus(paused, snapshot(), en)).toBe('Off, motion paused')
   })
 })

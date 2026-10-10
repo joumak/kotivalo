@@ -37,6 +37,7 @@ export interface Lamp {
   owner_until: string | null // motion: switches off then (null while the room is occupied)
   profile: 'day' | 'night' | null // motion: which profile switched it on
   has_motion: boolean // a motion sensor controls it
+  motion_paused: boolean // switched off by hand: motion waits until the room has been empty
 }
 
 export interface Profile {

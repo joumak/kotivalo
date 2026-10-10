@@ -206,6 +206,27 @@ class Behaviour:
         else:
             lamp.owner, lamp.off_since = "off", now
 
+    def motion_paused(self, ieee: str, now: datetime) -> bool:
+        """After a manual off: motion is ignored for now."""
+        lamp = self.lamp(ieee)
+        return lamp.suppressed or (
+            lamp.suppressed_until is not None and now < lamp.suppressed_until
+        )
+
+    def why_not_on(self, ieee: str, sensor: str, now: datetime, night: bool) -> str | None:
+        """Why motion left this lamp as it is (for the log), or None if it switched it."""
+        lamp, memo = self.lamp(ieee), self.sensor(sensor)
+        rule = self.rule_for_sensor(sensor)
+        if lamp.owner != "off":
+            return f"it is {lamp.owner}" + (
+                " (switched by hand: manual wins)" if lamp.owner == "manual" else ""
+            )
+        if self.motion_paused(ieee, now):
+            return "motion is paused after a manual off, until the room has been empty for a while"
+        if rule and not night and not self._dark(rule, memo):
+            return f"the room is bright ({memo.lux} lx >= {rule.dark_lux} lx)"
+        return None
+
     # --- time ----------------------------------------------------------------------
 
     def tick(self, now: datetime) -> list[Action]:

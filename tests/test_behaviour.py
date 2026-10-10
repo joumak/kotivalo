@@ -212,3 +212,16 @@ def test_night_window(local, ramp_start, expected):
 
     start = parse(ramp_start) if ramp_start else None
     assert night_now(parse(local), TZ, NightWindow("23:00", "07:00"), start) is expected
+
+
+def test_it_can_say_why_motion_did_nothing():
+    b = make()
+    b.manual(LAMP, True, at(0))
+    assert "manual" in b.why_not_on(LAMP, SENSOR, at(1), night=False)
+    b.manual(LAMP, False, at(2))
+    assert b.motion_paused(LAMP, at(3))
+    assert "paused" in b.why_not_on(LAMP, SENSOR, at(3), night=False)
+    assert not b.motion_paused(LAMP, at(8))
+    b.lux(SENSOR, 300, at(9))
+    assert "bright" in b.why_not_on(LAMP, SENSOR, at(9), night=False)
+    assert b.why_not_on(LAMP, SENSOR, at(9), night=True) is None

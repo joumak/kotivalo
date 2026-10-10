@@ -111,3 +111,14 @@ def endpoint(ep_id, inputs=(), outputs=()):
 def test_classify(endpoints, expected):
     device = SimpleNamespace(endpoints={0: endpoint(0), **endpoints})
     assert classify(device) == expected
+
+
+def test_a_placeholder_name_follows_the_model_once_known():
+    settings, registry = make_registry()
+    registry.sync([Discovered(SENSOR, "other")])  # joined, not interviewed yet
+    assert settings.devices[SENSOR].name == "Device 7788"
+    registry.sync([Discovered(SENSOR, "motion", "VALLHORN Wireless Motion Sensor")])
+    assert settings.devices[SENSOR].name == "VALLHORN Wireless Motion Sensor 7788"
+    settings.devices[SENSOR].name = "Makuuhuone"
+    registry.sync([Discovered(SENSOR, "motion", "VALLHORN Wireless Motion Sensor")])
+    assert settings.devices[SENSOR].name == "Makuuhuone"  # a user's name is kept

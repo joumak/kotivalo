@@ -43,6 +43,8 @@ export const fi: Messages = {
     sunriseDone: 'Herätys valmis',
     motionOn: 'Liikkeestä päällä',
     nightLight: 'Yövalo',
+    byHand: 'Käsin päällä',
+    offMotionPaused: 'Pois, liike tauolla',
     offAt: (status, time) => `${status}, sammuu klo ${time}`,
     wakeupLamp: 'Herätysvalo',
     noRoom: 'Muut valot',

@@ -43,6 +43,8 @@ export const en = {
     sunriseDone: 'Sunrise done',
     motionOn: 'On by motion',
     nightLight: 'Night light',
+    byHand: 'On by hand',
+    offMotionPaused: 'Off, motion paused',
     offAt: (status: string, time: string) => `${status}, off at ${time}`,
     wakeupLamp: 'Wake-up lamp',
     noRoom: 'Other lamps',

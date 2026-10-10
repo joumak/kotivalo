@@ -54,6 +54,10 @@ class Registry:
                 LOGGER.info("New device %s: %s (%s)", item.ieee, item.model, item.kind)
                 changed = True
             else:
+                if item.model and device.name == default_name(None, item.ieee):
+                    # joined before its interview: replace the placeholder name
+                    device.name = default_name(item.model, item.ieee)
+                    changed = True
                 updates = {
                     "kind": item.kind if item.kind != "other" else device.kind,
                     "model": item.model or device.model,

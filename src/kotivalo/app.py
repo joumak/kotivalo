@@ -398,7 +398,9 @@ class Service:
                 LOGGER.info("Lamp %s announced itself; reading its state", event.ieee)
                 self._spawn_logged(self._refresh_soon(event.ieee), f"Refreshing {event.ieee}")
             case Motion(occupied=occupied):
-                actions = self.behaviour.motion(event.ieee, occupied, now, self._night(now))
+                night = self._night(now)
+                actions = self.behaviour.motion(event.ieee, occupied, now, night)
+                self._log_motion(event.ieee, occupied, actions, now, night)
                 self._run_actions(actions)
                 self._behaviour_saved()
             case Lux(lux=lux):
@@ -411,6 +413,28 @@ class Service:
                 device = self.settings.devices.get(event.ieee)
                 if device and device.kind == "motion" and not device.configured:
                     self._configure_soon(event.ieee)
+
+    def _log_motion(self, sensor: str, occupied: bool, actions, now: datetime, night: bool) -> None:
+        name = self.settings.devices[sensor].name if sensor in self.settings.devices else sensor
+        rule = self.behaviour.rule_for_sensor(sensor)
+        if not occupied or rule is None:
+            LOGGER.info(
+                "%s: %s%s", name, "motion" if occupied else "empty", "" if rule else " (no rule)"
+            )
+            return
+        switched = {a.ieee for a in actions}
+        for ieee in rule.lights:
+            lamp = self.settings.devices.get(ieee)
+            label = lamp.name if lamp else ieee
+            if ieee in switched:
+                LOGGER.info(
+                    "%s: motion, switching on %s (%s)", name, label, "night" if night else "day"
+                )
+            else:
+                reason = (
+                    self.behaviour.why_not_on(ieee, sensor, now, night) or "already on by motion"
+                )
+                LOGGER.info("%s: motion, %s left as it is: %s", name, label, reason)
 
     def _lamp_seen(self, ieee: str, was_on: bool | None) -> None:
         """A report or a poll showed the lamp's real state: let the owner model follow
@@ -835,6 +859,7 @@ class Service:
             "owner_until": memo.off_at.isoformat() if memo.off_at else None,
             "profile": memo.profile,
             "has_motion": self.behaviour.rule_for_lamp(ieee) is not None,
+            "motion_paused": self.behaviour.motion_paused(ieee, self.clock.now()),
         }
 
     def sensor_list(self) -> list[dict]:

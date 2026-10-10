@@ -130,6 +130,16 @@ async def put_wakeup(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def put_motion(request: web.Request) -> web.Response:
+    service_of(request).update_motion(request.match_info["ieee"], await request.json())
+    return ok(request)
+
+
+async def delete_motion(request: web.Request) -> web.Response:
+    service_of(request).remove_motion(request.match_info["ieee"])
+    return ok(request)
+
+
 async def put_night(request: web.Request) -> web.Response:
     service_of(request).update_night(await request.json())
     return ok(request)
@@ -161,6 +171,22 @@ async def post_permit(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def post_fake_event(request: web.Request) -> web.Response:
+    """`serve --fake` only: inject a sensor event, for UI development and tests."""
+    from kotivalo.events import Battery, Lux, Motion
+
+    body = await request.json()
+    ieee, value = str(body["ieee"]), body["value"]
+    make = {
+        "motion": lambda: Motion(ieee, bool(value)),
+        "lux": lambda: Lux(ieee, float(value)),
+        "battery": lambda: Battery(ieee, float(value)),
+    }
+    service_of(request).events.put_nowait(make[body["type"]]())
+    await asyncio.sleep(0.2)  # let it be handled before answering
+    return ok(request)
+
+
 def make_web_app(service) -> web.Application:
     app = web.Application(middlewares=[errors, guard])
     app[SERVICE] = service
@@ -174,9 +200,13 @@ def make_web_app(service) -> web.Application:
     router.add_delete("/api/devices/{ieee}", delete_device)
     router.add_put("/api/wakeup", put_wakeup)
     router.add_put("/api/night", put_night)
+    router.add_put("/api/motion/{ieee}", put_motion)
+    router.add_delete("/api/motion/{ieee}", delete_motion)
     router.add_post("/api/sunrise/test", post_test)
     router.add_post("/api/sunrise/stop", post_stop)
     router.add_post("/api/skip", post_skip)
     router.add_post("/api/permit", post_permit)
+    if service.fake:
+        router.add_post("/api/fake/event", post_fake_event)
     router.add_static("/static/", STATIC_DIR)
     return app

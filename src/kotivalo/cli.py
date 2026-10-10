@@ -260,7 +260,14 @@ def cmd_serve(args, store: Store) -> None:
     from kotivalo.app import serve
 
     code = asyncio.run(
-        serve(store, host=args.host, port=args.port, fake=args.fake, fake_lamps=args.fake_lamps)
+        serve(
+            store,
+            host=args.host,
+            port=args.port,
+            fake=args.fake,
+            fake_lamps=args.fake_lamps,
+            fake_sensors=args.fake_sensors,
+        )
     )
     leftover = [t.name for t in threading.enumerate() if t is not threading.main_thread()]
     if leftover:  # diagnostics: these could keep the process from exiting
@@ -281,6 +288,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--fake", action="store_true", help="use in-memory lamps, no radio")
     p.add_argument("--fake-lamps", type=int, default=2, help="how many fake lamps (with --fake)")
+    p.add_argument("--fake-sensors", type=int, default=1, help="fake motion sensors (with --fake)")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("xbee-config", help="one-time: set the XBee to AP=2 and 57600 baud")

@@ -119,3 +119,54 @@ async def test_a_failing_handler_never_breaks_zigpy(app):
     bridge.attach_all(app)
     app.add_listener(bridge)
     app.packet_received(packet(OnOff.cluster_id, ON_OFF_REPORT))  # must not raise
+
+
+SENSOR = "11:22:33:44:55:66:77:88"
+SENSOR_NWK = 0x2B2B
+
+
+def sensor_packet(cluster: int, data: str, endpoint: int) -> t.ZigbeePacket:
+    p = packet(cluster, data, endpoint=endpoint)
+    return p.replace(src=t.AddrModeAddress(addr_mode=t.AddrMode.NWK, address=SENSOR_NWK))
+
+
+@pytest.fixture
+def vallhorn(app):
+    """A VALLHORN-shaped sensor: battery + OnOff output on ep 1, occupancy on 2, lux on 3."""
+    device = app.add_device(t.EUI64.convert(SENSOR), SENSOR_NWK)
+    for ep_id, inputs, outputs in ((1, [0x0001], [0x0006]), (2, [0x0406], []), (3, [0x0400], [])):
+        ep = device.add_endpoint(ep_id)
+        ep.profile_id = 0x0104
+        for cluster_id in inputs:
+            ep.add_input_cluster(cluster_id)
+        for cluster_id in outputs:
+            ep.add_output_cluster(cluster_id)
+        ep.status = zigpy.endpoint.Status.ZDO_INIT
+    device.status = zigpy.device.Status.ENDPOINTS_INIT
+    return app
+
+
+async def test_motion_sensor_reports_become_events(vallhorn):
+    from kotivalo.events import Battery, Lux, Motion
+
+    queue = asyncio.Queue()
+    EventBridge(queue).attach_all(vallhorn)
+    vallhorn.packet_received(sensor_packet(0x0406, "18080a00001801", endpoint=2))  # occupied
+    vallhorn.packet_received(sensor_packet(0x0400, "18090a000021b439", endpoint=3))  # 14772
+    vallhorn.packet_received(sensor_packet(0x0001, "180a0a210020c8", endpoint=1))  # 200 = 100 %
+    vallhorn.packet_received(sensor_packet(0x0406, "180b0a00001800", endpoint=2))  # empty
+    events = await drain(queue)
+    assert events == [
+        Motion(SENSOR, True),
+        Lux(SENSOR, 30.0),
+        Battery(SENSOR, 100.0),
+        Motion(SENSOR, False),
+    ]
+
+
+def test_illuminance_conversion():
+    from kotivalo.zigbee import illuminance_to_lux
+
+    assert illuminance_to_lux(0) == 0.0  # too dark to measure
+    assert illuminance_to_lux(1) == 1.0
+    assert illuminance_to_lux(14772) == 30.0

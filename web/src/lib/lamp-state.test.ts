@@ -22,10 +22,14 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   last_report: null,
   wakeup: false,
   power_on: 'on',
-  owner: null,
+  owner: 'manual',
+  owner_until: null,
+  profile: null,
+  has_motion: false,
   ...extra,
 })
-const snapshot = (sunrise: Snapshot['sunrise'] = null) => ({ timezone: 'Europe/Helsinki', sunrise }) as Snapshot
+const snapshot = (sunrise: Snapshot['sunrise'] = null) =>
+  ({ timezone: 'Europe/Helsinki', sunrise, sensors: [] }) as unknown as Snapshot
 
 describe('lamp status', () => {
   it('says how bright and how warm', () => {
@@ -44,5 +48,14 @@ describe('lamp status', () => {
 
   it('says when a lamp does not respond', () => {
     expect(lampStatus(lamp({}, { error: 'timeout' }), snapshot(), en)).toBe('Not responding')
+  })
+})
+
+describe('motion status', () => {
+  it('says the lamp is on by motion, and when it will go off', () => {
+    const motion = lamp({}, { owner: 'motion', profile: 'day', owner_until: '2026-10-12T15:32:00Z' })
+    expect(lampStatus(motion, snapshot(), fi)).toBe('Liikkeestä päällä, sammuu klo 18.32')
+    const night = lamp({ level: 13 }, { owner: 'motion', profile: 'night', owner_until: null })
+    expect(lampStatus(night, snapshot(), en)).toBe('Night light')
   })
 })

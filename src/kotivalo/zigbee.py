@@ -22,7 +22,7 @@ from zigpy.zcl.clusters.lighting import Color, ColorCapabilities
 from zigpy.zcl.helpers import ReportingConfig
 from zigpy.zdo.types import Status as ZdoStatus
 
-from kotivalo.events import Announce, Event, LightReport
+from kotivalo.events import Announce, Battery, Event, LightReport, Lux, Motion, Seen
 from kotivalo.light import LightCaps, LightError, LightState
 from kotivalo.registry import Discovered
 from kotivalo.settings import RadioSettings
@@ -156,6 +156,8 @@ def light_endpoint(device: zigpy.device.Device):
 
 
 OCCUPANCY_CLUSTER = 0x0406
+ILLUMINANCE_CLUSTER = 0x0400
+POWER_CLUSTER = 0x0001
 
 
 def classify(device: zigpy.device.Device) -> tuple[str, int | None]:
@@ -196,7 +198,15 @@ LAMP_REPORTING = {
     LevelControl.cluster_id: {"current_level": (2, 300, 5)},
     Color.cluster_id: {"color_temperature": (2, 600, 10)},
 }
+# Motion sensor attributes (VALLHORN: occupancy on ep 2, illuminance on ep 3, battery on
+# ep 1). Occupancy reports at least every 5 min, so a silent sensor is noticed.
+SENSOR_REPORTING = {
+    OCCUPANCY_CLUSTER: {"occupancy": (0, 300, 1)},
+    ILLUMINANCE_CLUSTER: {"measured_value": (10, 600, 500)},  # ~12 % change in lux
+    POWER_CLUSTER: {"battery_percentage_remaining": (3600, 21600, 2)},
+}
 CONFIGURE_TIMEOUT_S = 15
+SLEEPY_TIMEOUT_S = 30  # a sleepy device answers only while awake
 ZDO_DEVICE_ANNOUNCE = 0x0013
 
 
@@ -207,13 +217,30 @@ async def configure_lamp(device: zigpy.device.Device, endpoint_id: int | None) -
     ep = device.endpoints.get(endpoint_id) if endpoint_id is not None else light_endpoint(device)
     if ep is None:
         return False
+    clusters = [ep.in_clusters[c] for c in LAMP_REPORTING if c in ep.in_clusters]
+    return await _configure(device, clusters, LAMP_REPORTING, CONFIGURE_TIMEOUT_S)
+
+
+async def configure_sensor(device: zigpy.device.Device) -> bool:
+    """Bind a motion sensor's occupancy, illuminance and battery to the coordinator and
+    ask for reports. Its OnOff output (direct lamp control) is deliberately not bound.
+    The sensor sleeps: call this while it is awake (right after joining or motion)."""
+    clusters = [
+        ep.in_clusters[c]
+        for ep_id, ep in device.endpoints.items()
+        if ep_id != 0
+        for c in SENSOR_REPORTING
+        if c in getattr(ep, "in_clusters", {})
+    ]
+    return bool(clusters) and await _configure(device, clusters, SENSOR_REPORTING, SLEEPY_TIMEOUT_S)
+
+
+async def _configure(device, clusters, reporting: dict, timeout_s: float) -> bool:
     ok = True
-    for cluster_id, attributes in LAMP_REPORTING.items():
-        cluster = ep.in_clusters.get(cluster_id)
-        if cluster is None:
-            continue
+    for cluster in clusters:
+        attributes = reporting[cluster.cluster_id]
         try:
-            async with asyncio.timeout(CONFIGURE_TIMEOUT_S):
+            async with asyncio.timeout(timeout_s):
                 bound = await cluster.bind()
                 config = {
                     cluster.find_attribute(name): ReportingConfig(*values)
@@ -228,7 +255,7 @@ async def configure_lamp(device: zigpy.device.Device, endpoint_id: int | None) -
         failed = {a.name: s for a, s in result.items() if s != foundation.Status.SUCCESS}
         if bind_status != ZdoStatus.SUCCESS or failed:
             LOGGER.warning(
-                "Lamp %s %s: bind %s, reporting not accepted for %s",
+                "Device %s %s: bind %s, reporting not accepted for %s",
                 device.ieee,
                 cluster.name,
                 bind_status,
@@ -236,8 +263,13 @@ async def configure_lamp(device: zigpy.device.Device, endpoint_id: int | None) -
             )
             ok = False
         else:
-            LOGGER.info("Lamp %s %s: bound and reporting", device.ieee, cluster.name)
+            LOGGER.info("Device %s %s: bound and reporting", device.ieee, cluster.name)
     return ok
+
+
+def illuminance_to_lux(measured_value: int) -> float:
+    """ZCL illuminance is 10000 * log10(lux) + 1; 0 means too dark to measure."""
+    return 0.0 if measured_value <= 0 else round(10 ** ((measured_value - 1) / 10000), 1)
 
 
 class EventBridge:
@@ -253,14 +285,17 @@ class EventBridge:
         self._attached: set[int] = set()
 
     def attach(self, device: zigpy.device.Device) -> None:
-        ep = light_endpoint(device)
-        if ep is None:
-            return
-        for cluster_id in LAMP_REPORTING:
-            cluster = ep.in_clusters.get(cluster_id)
-            if cluster is not None and id(cluster) not in self._attached:
-                self._attached.add(id(cluster))
-                cluster.on_event("attribute_report", self._on_report)
+        kind, _ = classify(device)
+        wanted = {"light": LAMP_REPORTING, "motion": SENSOR_REPORTING}.get(kind, {})
+        endpoints = [e for i, e in device.endpoints.items() if i != 0]
+        if kind == "light":
+            endpoints = [light_endpoint(device)]
+        for ep in endpoints:
+            for cluster_id in wanted:
+                cluster = getattr(ep, "in_clusters", {}).get(cluster_id)
+                if cluster is not None and id(cluster) not in self._attached:
+                    self._attached.add(id(cluster))
+                    cluster.on_event("attribute_report", self._on_report)
 
     def attach_all(self, app: zigpy.application.ControllerApplication) -> None:
         for device in app.devices.values():
@@ -275,15 +310,24 @@ class EventBridge:
 
     def _on_report(self, event) -> None:
         try:
-            name = event.attribute_name
+            ieee, name, value = str(event.device_ieee), event.attribute_name, event.value
             if name in ("on_off", "current_level", "color_temperature"):
-                self._put(LightReport(str(event.device_ieee), name, event.value))
+                self._put(LightReport(ieee, name, value))
+            elif name == "occupancy":
+                self._put(Motion(ieee, bool(int(value) & 1)))
+            elif name == "measured_value" and event.cluster_id == ILLUMINANCE_CLUSTER:
+                self._put(Lux(ieee, illuminance_to_lux(int(value))))
+            elif name == "battery_percentage_remaining" and int(value) != 0xFF:
+                self._put(Battery(ieee, int(value) / 2))  # reported in half percents
         except Exception:  # noqa: BLE001
             LOGGER.exception("Bad attribute report %r", event)
 
     # zigpy application listener methods
     def handle_message(self, device, profile, cluster, src_ep, dst_ep, data) -> None:
         try:
+            if is_coordinator(device):
+                return
+            self._put(Seen(str(device.ieee)))
             if profile == 0 and cluster == ZDO_DEVICE_ANNOUNCE:
                 self._put(Announce(str(device.ieee)))
         except Exception:  # noqa: BLE001

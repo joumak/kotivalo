@@ -1,9 +1,9 @@
-import { Activity, CircleHelp, Gamepad2, Lightbulb, Pencil, Sunrise, Trash2 } from 'lucide-react'
+import { Activity, CircleHelp, Gamepad2, Lightbulb, Pencil, SlidersHorizontal, Sunrise, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { useActions } from '@/api/actions'
 import { useLive } from '@/api/live'
-import type { DeviceInfo, DeviceKind, Snapshot } from '@/api/types'
+import type { DeviceInfo, DeviceKind, MotionRule, Profile, Sensor, Snapshot } from '@/api/types'
 import { PageTitle } from '@/components/shell'
 import {
   AlertDialog,
@@ -26,7 +26,11 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { useT } from '@/i18n'
+import type { Messages } from '@/i18n/en'
+import { formatClockTime, levelPercent, percentToLevel } from '@/lib/format'
 import { useNow } from '@/lib/screen'
 import { cn } from '@/lib/utils'
 
@@ -39,13 +43,16 @@ export function DevicesPage() {
   const { snapshot } = useLive()
   const [renaming, setRenaming] = useState<DeviceInfo | null>(null)
   const [removing, setRemoving] = useState<DeviceInfo | null>(null)
+  const [motion, setMotion] = useState<Sensor | null>(null)
+  const [adding, setAdding] = useState(false)
   if (!snapshot) return null
 
   const rooms = [...new Set(snapshot.devices.map((d) => d.room).filter(Boolean))].sort()
+  const editing = motion && snapshot.sensors.find((s) => s.ieee === motion.ieee)
   return (
     <>
-      <PageTitle>{t.nav.devices}</PageTitle>
-      <Pairing snapshot={snapshot} />
+      <PageTitle action={<Button onClick={() => setAdding(true)}>{t.devices.add}</Button>}>{t.nav.devices}</PageTitle>
+      <PairingStatus snapshot={snapshot} />
       {snapshot.devices.length === 0 && <p className="text-muted-foreground">{t.devices.empty}</p>}
       <div className="flex max-w-3xl flex-col gap-7">
         {KINDS.map((kind) => {
@@ -61,8 +68,10 @@ export function DevicesPage() {
                     <DeviceRow
                       key={device.ieee}
                       device={device}
+                      sensor={snapshot.sensors.find((s) => s.ieee === device.ieee)}
                       onRename={() => setRenaming(device)}
                       onRemove={() => setRemoving(device)}
+                      onMotion={(sensor) => setMotion(sensor)}
                     />
                   ))}
               </ul>
@@ -70,47 +79,108 @@ export function DevicesPage() {
           )
         })}
       </div>
+      {adding && <AddDeviceDialog snapshot={snapshot} onClose={() => setAdding(false)} />}
       {renaming && <RenameDialog device={renaming} rooms={rooms} onClose={() => setRenaming(null)} />}
       {removing && <RemoveDialog device={removing} onClose={() => setRemoving(null)} />}
+      {editing && <MotionDialog sensor={editing} snapshot={snapshot} onClose={() => setMotion(null)} />}
     </>
   )
 }
 
-function Pairing({ snapshot }: { snapshot: Snapshot }) {
-  const t = useT()
-  const actions = useActions()
-  const now = useNow(1000)
-  const left = snapshot.pairing_until
+function pairingLeft(snapshot: Snapshot, now: Date): number {
+  return snapshot.pairing_until
     ? Math.max(0, Math.round((Date.parse(snapshot.pairing_until) - now.getTime()) / 1000))
     : 0
-  if (left === 0) {
-    return (
-      <Button className="mb-6" onClick={() => actions.permit(PAIR_SECONDS)}>
-        {t.devices.add}
-      </Button>
-    )
-  }
+}
+
+/** While pairing is open: the countdown and what joined, visible on the page itself. */
+function PairingStatus({ snapshot }: { snapshot: Snapshot }) {
+  const t = useT()
+  const actions = useActions()
+  const left = pairingLeft(snapshot, useNow(1000))
+  if (left === 0) return null
   return (
     <div role="status" className="mb-6 max-w-3xl rounded-3xl border border-ember/40 bg-ember/10 p-5">
-      <div className="mb-2 flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         <p className="text-lg font-medium tabular-nums">{t.devices.pairing(left)}</p>
         <Button variant="outline" onClick={() => actions.permit(0)}>
           {t.devices.stopPairing}
         </Button>
       </div>
-      <p className="max-w-prose text-muted-foreground">{t.devices.pairHelp}</p>
       {snapshot.last_event && <p className="mt-3 text-sm">{snapshot.last_event}</p>}
     </div>
   )
 }
 
-interface DeviceRowProps {
-  device: DeviceInfo
-  onRename: () => void
-  onRemove: () => void
+/** Choose what you are adding, read how to put it into pairing mode, then pair. */
+function AddDeviceDialog({ snapshot, onClose }: { snapshot: Snapshot; onClose: () => void }) {
+  const t = useT()
+  const actions = useActions()
+  const left = pairingLeft(snapshot, useNow(1000))
+  const [kind, setKind] = useState<'light' | 'motion' | null>(null)
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t.devices.addTitle}</DialogTitle>
+          <DialogDescription>{kind === null ? t.devices.addWhat : null}</DialogDescription>
+        </DialogHeader>
+        {kind === null ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(['light', 'motion'] as const).map((choice) => {
+              const Icon = ICONS[choice]
+              return (
+                <button
+                  key={choice}
+                  type="button"
+                  onClick={() => setKind(choice)}
+                  className="flex min-h-28 flex-col items-start justify-between gap-3 rounded-2xl border bg-card p-4 text-left text-base transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/60 focus-visible:outline-none"
+                >
+                  <Icon className="size-6 text-ember" />
+                  {choice === 'light' ? t.devices.addLamp : t.devices.addSensor}
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <p className="max-w-prose">{kind === 'light' ? t.devices.pairHelp : t.devices.sensorHelp}</p>
+            {kind === 'motion' && <p className="max-w-prose text-sm text-muted-foreground">{t.devices.sensorBatteries}</p>}
+            {left > 0 && (
+              <div role="status" className="rounded-2xl border border-ember/40 bg-ember/10 px-4 py-3">
+                <p className="font-medium tabular-nums">{t.devices.pairing(left)}</p>
+                {snapshot.last_event && <p className="mt-1 text-sm">{snapshot.last_event}</p>}
+              </div>
+            )}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t.devices.close}
+          </Button>
+          {kind !== null &&
+            (left > 0 ? (
+              <Button variant="outline" onClick={() => actions.permit(0)}>
+                {t.devices.stopPairing}
+              </Button>
+            ) : (
+              <Button onClick={() => actions.permit(PAIR_SECONDS)}>{t.devices.startPairing}</Button>
+            ))}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
-function DeviceRow({ device, onRename, onRemove }: DeviceRowProps) {
+interface DeviceRowProps {
+  device: DeviceInfo
+  sensor?: Sensor
+  onRename: () => void
+  onRemove: () => void
+  onMotion: (sensor: Sensor) => void
+}
+
+function DeviceRow({ device, sensor, onRename, onRemove, onMotion }: DeviceRowProps) {
   const t = useT()
   const actions = useActions()
   const now = useNow(60000)
@@ -120,16 +190,38 @@ function DeviceRow({ device, onRename, onRemove }: DeviceRowProps) {
     : device.last_seen
       ? t.devices.seen(t.time.ago(Math.round((now.getTime() / 1000 - device.last_seen) / 60)))
       : null
+  const details = sensor
+    ? [
+        sensor.occupied ? t.sensor.occupied : t.sensor.empty,
+        sensor.lux !== null ? t.sensor.lux(sensor.lux) : null,
+        sensor.battery !== null ? t.sensor.battery(sensor.battery) : null,
+        sensor.configured ? null : t.sensor.notConfigured,
+      ]
+    : [device.wakeup ? t.lamp.wakeupLamp : null, seen]
   return (
     <li className="flex items-center gap-4 px-4 py-3">
-      <Icon className={cn('size-5 shrink-0', device.wakeup ? 'text-ember' : 'text-muted-foreground')} />
+      <Icon
+        className={cn(
+          'size-5 shrink-0',
+          device.wakeup || sensor?.occupied ? 'text-ember' : 'text-muted-foreground',
+        )}
+      />
       <div className="min-w-0 grow">
         <p className="truncate font-medium">{device.name}</p>
-        <p className="truncate text-sm text-muted-foreground">
-          {[device.room, device.wakeup ? t.lamp.wakeupLamp : null, seen].filter(Boolean).join(', ')}
-        </p>
+        <p className="text-sm text-muted-foreground">{[device.room, ...details].filter(Boolean).join(', ')}</p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {sensor && (
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={t.sensor.settings(device.name)}
+            title={t.sensor.settings(device.name)}
+            onClick={() => onMotion(sensor)}
+          >
+            <SlidersHorizontal />
+          </Button>
+        )}
         {device.kind === 'light' && !device.wakeup && (
           <Button
             size="icon"
@@ -149,6 +241,197 @@ function DeviceRow({ device, onRename, onRemove }: DeviceRowProps) {
         </Button>
       </div>
     </li>
+  )
+}
+
+const DARK_LUX = [5, 10, 30, 50, 100, 200]
+const OFF_AFTER = [1, 2, 5, 10, 15, 30]
+const PERCENTS = [5, 10, 20, 30, 50, 75, 100]
+const KELVINS = [2200, 2500, 2700, 3000, 3500, 4000]
+const ALWAYS = 'always'
+
+function defaultRule(sensor: string): MotionRule {
+  return {
+    sensor,
+    lights: [],
+    enabled: true,
+    dark_lux: 30,
+    off_after_min: 5,
+    day: { level: 254, kelvin: 2700 },
+    night: { level: 13, kelvin: 2200 },
+  }
+}
+
+/** Which lamps a motion sensor switches on, when, and how bright. */
+function MotionDialog({ sensor, snapshot, onClose }: { sensor: Sensor; snapshot: Snapshot; onClose: () => void }) {
+  const t = useT()
+  const actions = useActions()
+  const [rule, setRule] = useState<MotionRule>(() => sensor.rule ?? defaultRule(sensor.ieee))
+  const change = (patch: Partial<MotionRule>) => setRule((r) => ({ ...r, ...patch }))
+  const takenBy = (lamp: string) =>
+    snapshot.sensors.find((s) => s.ieee !== sensor.ieee && s.rule?.lights.includes(lamp))
+
+  const save = async () => {
+    const { sensor: _, ...body } = rule
+    if (await actions.motion(sensor.ieee, body)) onClose()
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t.sensor.settings(sensor.name)}</DialogTitle>
+          <DialogDescription>
+            {[sensor.occupied ? t.sensor.occupied : t.sensor.empty, sensor.lux !== null ? t.sensor.lux(sensor.lux) : null]
+              .filter(Boolean)
+              .join(', ')}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center justify-between gap-4">
+            <Label htmlFor="motion-enabled" className="text-base">
+              {t.sensor.enabled}
+            </Label>
+            <Switch id="motion-enabled" checked={rule.enabled} onCheckedChange={(enabled) => change({ enabled })} />
+          </div>
+
+          <fieldset className="flex flex-col gap-1" disabled={!rule.enabled}>
+            <legend className="mb-2 text-sm text-muted-foreground">{t.sensor.lamps}</legend>
+            {snapshot.lights.map((lamp) => {
+              const other = takenBy(lamp.ieee)
+              const id = `motion-lamp-${lamp.ieee}`
+              return (
+                <div key={lamp.ieee} className="flex items-center justify-between gap-4 py-1.5">
+                  <Label htmlFor={id} className={cn('flex flex-col items-start gap-0.5 text-base', other && 'opacity-50')}>
+                    {lamp.name}
+                    {other && <span className="text-sm text-muted-foreground">{t.sensor.takenBy(other.name)}</span>}
+                  </Label>
+                  <Switch
+                    id={id}
+                    disabled={!!other}
+                    checked={rule.lights.includes(lamp.ieee)}
+                    onCheckedChange={(on) =>
+                      change({ lights: on ? [...rule.lights, lamp.ieee] : rule.lights.filter((x) => x !== lamp.ieee) })
+                    }
+                  />
+                </div>
+              )
+            })}
+          </fieldset>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t.sensor.darkerThan} hint={sensor.lux !== null ? t.sensor.luxNow(t.sensor.lux(sensor.lux)) : undefined}>
+              <Select
+                value={rule.dark_lux === null ? ALWAYS : String(rule.dark_lux)}
+                onValueChange={(v) => change({ dark_lux: v === ALWAYS ? null : Number(v) })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DARK_LUX.map((lux) => (
+                    <SelectItem key={lux} value={String(lux)}>
+                      {t.sensor.lux(lux)}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={ALWAYS}>{t.sensor.always}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={t.sensor.offAfter}>
+              <NumberSelect value={rule.off_after_min} options={OFF_AFTER} label={t.sensor.minutes} onChange={(v) => change({ off_after_min: v })} />
+            </Field>
+          </div>
+
+          <ProfileFields title={t.sensor.day} profile={rule.day} onChange={(day) => change({ day })} t={t} />
+          <ProfileFields
+            title={t.sensor.night}
+            hint={t.sensor.nightHint(formatClockTime(snapshot.night.start, t.locale), formatClockTime(snapshot.night.end, t.locale))}
+            profile={rule.night}
+            onChange={(night) => change({ night })}
+            t={t}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            {t.wakeup.cancel}
+          </Button>
+          <Button onClick={save}>{t.sensor.save}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ProfileFields({
+  title,
+  hint,
+  profile,
+  onChange,
+  t,
+}: {
+  title: string
+  hint?: string
+  profile: Profile
+  onChange: (profile: Profile) => void
+  t: Messages
+}) {
+  return (
+    <fieldset>
+      <legend className="text-base font-medium">{title}</legend>
+      {hint && <p className="mb-2 text-sm text-muted-foreground">{hint}</p>}
+      <div className="mt-2 grid grid-cols-2 gap-4">
+        <Field label={t.sensor.brightness}>
+          <NumberSelect
+            value={levelPercent(profile.level)}
+            options={PERCENTS}
+            label={(p) => `${p} %`}
+            onChange={(p) => onChange({ ...profile, level: percentToLevel(p) })}
+          />
+        </Field>
+        <Field label={t.sensor.warmth}>
+          <NumberSelect value={profile.kelvin} options={KELVINS} label={(k) => `${k} K`} onChange={(kelvin) => onChange({ ...profile, kelvin })} />
+        </Field>
+      </div>
+    </fieldset>
+  )
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      {children}
+      {hint && <span className="text-sm text-muted-foreground">{hint}</span>}
+    </div>
+  )
+}
+
+function NumberSelect({
+  value,
+  options,
+  label,
+  onChange,
+}: {
+  value: number
+  options: number[]
+  label: (value: number) => string
+  onChange: (value: number) => void
+}) {
+  const all = options.includes(value) ? options : [...options, value].sort((a, b) => a - b)
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {all.map((option) => (
+          <SelectItem key={option} value={String(option)}>
+            {label(option)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

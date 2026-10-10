@@ -25,4 +25,31 @@ class Announce:
     ieee: str
 
 
-Event = LightReport | Announce
+@dataclass(frozen=True)
+class Motion:
+    """A motion sensor reported the room occupied or empty."""
+
+    ieee: str
+    occupied: bool
+
+
+@dataclass(frozen=True)
+class Lux:
+    ieee: str
+    lux: float
+
+
+@dataclass(frozen=True)
+class Battery:
+    ieee: str
+    percent: float
+
+
+@dataclass(frozen=True)
+class Seen:
+    """Any frame from a device: a sleepy one is awake right now (a chance to configure it)."""
+
+    ieee: str
+
+
+Event = LightReport | Announce | Motion | Lux | Battery | Seen

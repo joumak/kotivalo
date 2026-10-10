@@ -1,4 +1,4 @@
-import { Menu, Sunrise } from 'lucide-react'
+import { Activity, Menu, Sunrise } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent } from 'react'
 
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { useT } from '@/i18n'
 import { formatTime, levelPercent, percentToLevel, weekdayName } from '@/lib/format'
 import { glowStrength, rgb } from '@/lib/light-color'
-import { isLit, lampColor, lampStatus } from '@/lib/lamp-state'
+import { isLit, lampColor, lampStatus, sensorFor } from '@/lib/lamp-state'
 import { isNight } from '@/lib/night'
 import { byRoom } from '@/lib/rooms'
 import { useNow } from '@/lib/screen'
@@ -147,6 +147,7 @@ function PanelTile({ lamp, room, snapshot }: { lamp: Lamp; room: string; snapsho
   const level = useLiveValue(lit ? levelPercent(lamp.state.level) : 0, send)
   const drag = useRef<{ y: number; start: number; height: number; moved: boolean } | null>(null)
   const color = lampColor(lamp)
+  const sensor = sensorFor(lamp, snapshot)
   const strength = glowStrength(lit ? percentToLevel(level.value) : 0)
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
@@ -208,7 +209,15 @@ function PanelTile({ lamp, room, snapshot }: { lamp: Lamp; room: string; snapsho
         />
       )}
       <span className="relative flex flex-col gap-0.5">
-        <span className={cn('text-sm', lit && level.value > 80 ? 'text-black/60' : 'text-muted-foreground')}>{room}</span>
+        <span className={cn('flex items-center gap-2 text-sm', lit && level.value > 80 ? 'text-black/60' : 'text-muted-foreground')}>
+          {room}
+          {sensor && (
+            <Activity
+              className={cn('size-4', sensor.occupied && 'text-ember')}
+              aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
+            />
+          )}
+        </span>
         <span className="text-xl leading-tight font-medium text-balance">{lamp.name}</span>
       </span>
       <span className={cn('relative text-lg tabular-nums', lit && level.value > 45 ? 'text-black/75' : 'text-muted-foreground')}>

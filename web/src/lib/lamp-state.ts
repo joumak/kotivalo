@@ -25,6 +25,10 @@ export function lampStatus(lamp: Lamp, snapshot: Snapshot, t: Messages): string 
     return t.lamp.sunrise(time(run.end))
   }
   if (!isLit(lamp)) return t.lamp.off
+  if (lamp.owner === 'motion') {
+    const status = lamp.profile === 'night' ? t.lamp.nightLight : t.lamp.motionOn
+    return lamp.owner_until ? t.lamp.offAt(status, time(lamp.owner_until)) : status
+  }
   const level = t.lamp.level(levelPercent(lamp.state.level))
   return lamp.caps.supports_ct && lamp.state.kelvin
     ? `${level}, ${t.lamp.kelvin(lamp.state.kelvin)}`
@@ -40,4 +44,9 @@ export function glowStyle(lamp: Lamp, scale = 1): CSSProperties {
     backgroundImage: `radial-gradient(120% 100% at 15% 0%, ${rgb(color, 0.55 * strength)} 0%, ${rgb(color, 0.12 * strength)} 55%, transparent 80%)`,
     boxShadow: `0 0 ${Math.round(40 * strength)}px ${rgb(color, 0.18 * strength)}`,
   }
+}
+
+/** The motion sensor whose rule switches this lamp, if any. */
+export function sensorFor(lamp: Lamp, snapshot: Snapshot) {
+  return snapshot.sensors.find((s) => s.rule?.enabled && s.rule.lights.includes(lamp.ieee))
 }

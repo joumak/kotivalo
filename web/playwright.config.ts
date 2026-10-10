@@ -14,7 +14,7 @@ export default defineConfig({
     { name: 'tablet', use: { viewport: { width: 1180, height: 820 }, hasTouch: true } },
   ],
   webServer: {
-    command: `rm -rf test-results/e2e-state && ../.venv/bin/kotivalo --state-dir test-results/e2e-state serve --fake --fake-lamps 3 --host 127.0.0.1 --port ${PORT}`,
+    command: `rm -rf test-results/e2e-state && ../.venv/bin/kotivalo --state-dir test-results/e2e-state serve --fake --fake-lamps 3 --fake-sensors 1 --host 127.0.0.1 --port ${PORT}`,
     url: `http://127.0.0.1:${PORT}/api/state`,
     reuseExistingServer: false,
   },

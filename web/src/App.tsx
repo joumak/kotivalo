@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 
 import { LiveProvider, useLive } from '@/api/live'
 import { Shell, TABS } from '@/components/shell'
@@ -7,11 +7,13 @@ import { Toaster } from '@/components/ui/sonner'
 import { LangProvider, useT } from '@/i18n'
 import { useLayout } from '@/lib/layout'
 import { usePanelMode, useTheme } from '@/lib/screen'
-import { DevicesPage } from '@/pages/devices'
 import { LightsPage } from '@/pages/lights'
 import { PanelDashboard } from '@/pages/panel'
-import { SettingsPage } from '@/pages/settings'
-import { WakeupPage } from '@/pages/wakeup'
+
+// The lights and the panel load first; the other pages when first opened.
+const WakeupPage = lazy(() => import('@/pages/wakeup').then((m) => ({ default: m.WakeupPage })))
+const DevicesPage = lazy(() => import('@/pages/devices').then((m) => ({ default: m.DevicesPage })))
+const SettingsPage = lazy(() => import('@/pages/settings').then((m) => ({ default: m.SettingsPage })))
 
 const PANEL_IDLE_MS = 3 * 60_000 // a wall panel returns to its dashboard after this
 
@@ -73,10 +75,12 @@ function Root() {
     const page = needsCode ? 'settings' : tab
     content = (
       <Shell tab={page} onTab={setTab} onBackToPanel={panel ? () => setInApp(false) : undefined}>
-        {page === 'lights' && <LightsPage />}
-        {page === 'wakeup' && <WakeupPage />}
-        {page === 'devices' && <DevicesPage />}
-        {page === 'settings' && <SettingsPage panel={panel} onPanel={onPanel} />}
+        <Suspense fallback={null}>
+          {page === 'lights' && <LightsPage />}
+          {page === 'wakeup' && <WakeupPage />}
+          {page === 'devices' && <DevicesPage />}
+          {page === 'settings' && <SettingsPage panel={panel} onPanel={onPanel} />}
+        </Suspense>
       </Shell>
     )
   }

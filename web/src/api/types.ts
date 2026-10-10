@@ -33,7 +33,37 @@ export interface Lamp {
   last_report: number | null // unix seconds of the lamp's last report
   wakeup: boolean
   power_on: 'on' | 'previous'
-  owner: Owner | null
+  owner: Owner
+  owner_until: string | null // motion: switches off then (null while the room is occupied)
+  profile: 'day' | 'night' | null // motion: which profile switched it on
+  has_motion: boolean // a motion sensor controls it
+}
+
+export interface Profile {
+  level: number // 2..254
+  kelvin: number
+}
+
+export interface MotionRule {
+  sensor: string
+  lights: string[]
+  enabled: boolean
+  dark_lux: number | null // only when darker than this; null = always
+  off_after_min: number
+  day: Profile
+  night: Profile
+}
+
+export interface Sensor {
+  ieee: string
+  name: string
+  room: string
+  occupied: boolean
+  last_report: string | null
+  lux: number | null
+  battery: number | null
+  configured: boolean
+  rule: MotionRule | null
 }
 
 export interface Alarm {
@@ -101,6 +131,7 @@ export interface Snapshot {
   lights: Lamp[]
   wakeup: { light: string | null; alarms: Alarm[]; ramp: Ramp }
   night: { start: string; end: string }
+  sensors: Sensor[]
   sunrise: SunriseRun | null
   upcoming: Upcoming[]
   last_run: RunRecord | null

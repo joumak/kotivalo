@@ -13,9 +13,10 @@ from datetime import datetime, timedelta
 from aiohttp import web
 
 from kotivalo import systemd
+from kotivalo.behaviour import Behaviour, SwitchOff, SwitchOn, night_now
 from kotivalo.clock import Clock, ntp_synchronized
-from kotivalo.events import Announce, Event, LightReport
-from kotivalo.light import FakeLight, LatestWins, LightController, LightError
+from kotivalo.events import Announce, Battery, Event, LightReport, Lux, Motion, Seen
+from kotivalo.light import MIN_LEVEL, FakeLight, LatestWins, LightController, LightError
 from kotivalo.ramp import (
     KELVIN_STEP,
     Curve,
@@ -29,7 +30,9 @@ from kotivalo.scheduler import AlarmScheduler, prune_skipped
 from kotivalo.settings import (
     FAKE_PREFIX,
     Alarm,
+    MotionRule,
     NightWindow,
+    Profile,
     RampSettings,
     SettingsError,
     Store,
@@ -54,6 +57,8 @@ POLL_TICK_S = 5
 POLL_INTERVAL_S = 60
 POLL_MAX_S = 600
 ANNOUNCE_SETTLE_S = 2
+BEHAVIOUR_TICK_S = 15  # re-check owner timers at least this often
+MOTION_ON_CT_DELAY_S = 0.5  # IKEA ignores colour changes until the lamp is on
 
 
 def poll_delay(failures: int) -> float:
@@ -62,31 +67,49 @@ def poll_delay(failures: int) -> float:
     return float(min(POLL_MAX_S, POLL_INTERVAL_S * 2**failures))
 
 
-def fake_devices(lamps: int) -> list[Discovered]:
+def fake_devices(lamps: int, sensors: int = 0) -> list[Discovered]:
     return [
         Discovered(f"{FAKE_PREFIX}{i:02x}", "light", "Fake panel", "Test", 1)
         for i in range(1, lamps + 1)
+    ] + [
+        Discovered(f"{FAKE_PREFIX}f{i}", "motion", "Fake motion sensor", "Test")
+        for i in range(1, sensors + 1)
     ]
 
 
 class Service:
     def __init__(
-        self, store: Store, *, fake: bool = False, fake_lamps: int = 2, clock: Clock | None = None
+        self,
+        store: Store,
+        *,
+        fake: bool = False,
+        fake_lamps: int = 2,
+        fake_sensors: int = 0,
+        clock: Clock | None = None,
     ):
         self.store = store
         self.fake = fake
         self.fake_lamps = fake_lamps
+        self.fake_sensors = fake_sensors
         self.clock = clock or Clock()
         self.settings = store.load_settings()
         self.state = store.load_state()
         self.registry = Registry(self.settings, self._make_light)
-        self.manager = SunriseManager(LightController(None), self.clock, self.curve, self._finished)
+        self.behaviour = Behaviour(self.settings)
+        self.behaviour.load(self.state.behaviour)
+        self.manager = SunriseManager(
+            LightController(None),
+            self.clock,
+            self.curve,
+            self._finished,
+            keep_on=self._keep_on_after_sunrise,
+        )
         self.scheduler = AlarmScheduler(
             self.manager,
             self.clock,
             lambda: self.settings,
             lambda: self.state,
-            on_start=lambda run: self.notify(),
+            on_start=self._sunrise_started,
         )
         self.zigbee = None  # zigpy ControllerApplication
         self.clock_synced: bool | None = None
@@ -100,6 +123,8 @@ class Service:
         self._live: dict[str, LatestWins] = {}
         self._changed = asyncio.Event()
         self.events: asyncio.Queue[Event] = asyncio.Queue()
+        self._behaviour_changed = asyncio.Event()
+        self._configuring: set[str] = set()
 
     # --- lifecycle ---------------------------------------------------------------
 
@@ -122,7 +147,7 @@ class Service:
 
     async def start(self) -> None:
         if self.fake:
-            found = fake_devices(self.fake_lamps)
+            found = fake_devices(self.fake_lamps, self.fake_sensors)
         else:
             from kotivalo.zigbee import DeviceEvents, EventBridge, discover, start_app
 
@@ -143,11 +168,13 @@ class Service:
             self.settings.wakeup.light = found[0].ieee  # in memory only
         self._attach_wakeup()
         await self._refresh_all()
+        self._reconcile_owners()
         self._spawn(self.scheduler.run_forever())
         self._spawn(self._clock_watch())
         self._spawn(self._ticker())
         self._spawn(self._consume_events())
         self._spawn(self._poll_lamps())
+        self._spawn(self._behaviour_loop())
         if self.zigbee is not None:
             self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
 
@@ -284,6 +311,9 @@ class Service:
             # again on "joined" too.
             if ieee in self.registry.controllers and (kind == "initialized" or known_lamp):
                 self._spawn_logged(self._setup_lamp(ieee), f"Setting up lamp {ieee}")
+            elif self.settings.devices.get(ieee) and self.settings.devices[ieee].kind == "motion":
+                self.settings.devices[ieee].configured = False  # a (re)joined sensor
+                self._configure_soon(ieee)  # it is awake right now
         self.notify()
 
     async def _setup_lamp(self, ieee: str) -> None:
@@ -324,6 +354,27 @@ class Service:
             self.settings.devices[ieee].configured = True
             self._save_settings()
 
+    def _configure_soon(self, ieee: str) -> None:
+        """Configure a sleepy device while it is awake (it just sent something)."""
+        if ieee in self._configuring or self.zigbee is None:
+            return
+        self._configuring.add(ieee)
+
+        async def run():
+            import zigpy.types
+
+            from kotivalo.zigbee import configure_sensor
+
+            try:
+                device = self.zigbee.get_device(ieee=zigpy.types.EUI64.convert(ieee))
+                if await configure_sensor(device):
+                    self.settings.devices[ieee].configured = True
+                    self._save_settings()
+            finally:
+                self._configuring.discard(ieee)
+
+        self._spawn_logged(run(), f"Configuring sensor {ieee}")
+
     async def _consume_events(self) -> None:
         """Every device event, in one place."""
         while True:
@@ -334,17 +385,118 @@ class Service:
                 LOGGER.exception("Handling %r failed", event)
 
     def _handle_event(self, event: Event) -> None:
+        now = self.clock.now()
         controller = self.registry.controllers.get(event.ieee)
-        if controller is None:
-            return
         match event:
-            case LightReport(attribute=attribute, value=value):
+            case LightReport(attribute=attribute, value=value) if controller is not None:
+                was_on = controller.state.on
                 if controller.apply_report(attribute, value):
+                    self._lamp_seen(event.ieee, was_on)
                     self.notify()
-            case Announce():
+            case Announce() if controller is not None:
                 # Typically a lamp that just got mains power back (a wall switch).
                 LOGGER.info("Lamp %s announced itself; reading its state", event.ieee)
                 self._spawn_logged(self._refresh_soon(event.ieee), f"Refreshing {event.ieee}")
+            case Motion(occupied=occupied):
+                actions = self.behaviour.motion(event.ieee, occupied, now, self._night(now))
+                self._run_actions(actions)
+                self._behaviour_saved()
+            case Lux(lux=lux):
+                self.behaviour.lux(event.ieee, lux, now)
+                self.notify()
+            case Battery(percent=percent):
+                self.behaviour.battery(event.ieee, percent)
+                self.notify()
+            case Seen():
+                device = self.settings.devices.get(event.ieee)
+                if device and device.kind == "motion" and not device.configured:
+                    self._configure_soon(event.ieee)
+
+    def _lamp_seen(self, ieee: str, was_on: bool | None) -> None:
+        """A report or a poll showed the lamp's real state: let the owner model follow
+        changes made outside the service (a wall switch)."""
+        on = self.registry.controller(ieee).state.on
+        if on is not None and on != was_on:
+            self.behaviour.lamp_state(ieee, on, self.clock.now())
+            self._behaviour_saved()
+
+    def _reconcile_owners(self) -> None:
+        """At startup: owners from state.json against what the lamps actually do."""
+        now = self.clock.now()
+        for ieee, controller in self.registry.controllers.items():
+            if controller.state.on is not None:
+                self.behaviour.lamp_state(ieee, controller.state.on, now)
+        self._behaviour_saved()
+
+    def _behaviour_saved(self) -> None:
+        self.state.behaviour = self.behaviour.to_dict()
+        self.store.save_state(self.state)
+        self._behaviour_changed.set()
+        self.notify()
+
+    def _night(self, now: datetime) -> bool:
+        """The night window, ended early by a sunrise that started this morning."""
+        wakeup = self.settings.wakeup
+        occs = occurrences(now, wakeup.alarms, wakeup.ramp, self.settings.tz)
+        started = [
+            o.start
+            for o in occs
+            if o.key not in self.state.skipped and now - timedelta(hours=12) < o.start <= now
+        ]
+        return night_now(now, self.settings.tz, self.settings.night, max(started, default=None))
+
+    def _run_actions(self, actions) -> None:
+        for action in actions:
+            match action:
+                case SwitchOn(ieee=ieee, level=level, kelvin=kelvin):
+                    self._spawn_logged(self._switch_on(ieee, level, kelvin), f"Motion on {ieee}")
+                case SwitchOff(ieee=ieee):
+                    self._spawn_logged(self._switch_off(ieee), f"Motion off {ieee}")
+
+    async def _switch_on(self, ieee: str, level: int, kelvin: int) -> None:
+        controller = self.registry.controller(ieee)
+        async with controller.lock:
+            await controller.set_level(level, 0)
+            await asyncio.sleep(MOTION_ON_CT_DELAY_S)
+            await controller.set_ct(kelvin_to_mired(kelvin))
+
+    async def _switch_off(self, ieee: str) -> None:
+        controller = self.registry.controller(ieee)
+        async with controller.lock:
+            await controller.off(**self._park(ieee, controller))
+
+    def _park(self, ieee: str, controller: LightController) -> dict:
+        """Before off: warm; the wake-up lamp also dim, so its next start never flashes."""
+        return {
+            "park_mireds": controller.caps.max_mireds if controller.caps.supports_ct else None,
+            "park_level": MIN_LEVEL if ieee == self.settings.wakeup.light else None,
+        }
+
+    async def _behaviour_loop(self) -> None:
+        """Runs the owner model's timers (motion off, silent sensors)."""
+        while True:
+            deadline = self.behaviour.next_deadline()
+            wait = BEHAVIOUR_TICK_S
+            if deadline is not None:
+                wait = max(0.0, min(wait, (deadline - self.clock.now()).total_seconds()))
+            self._behaviour_changed.clear()
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(wait):
+                    await self._behaviour_changed.wait()
+            actions = self.behaviour.tick(self.clock.now())
+            if actions:
+                self._run_actions(actions)
+                self._behaviour_saved()
+
+    def _sunrise_started(self, run: Run) -> None:
+        if run.light:
+            self.behaviour.sunrise_started(run.light)
+            self._behaviour_saved()
+
+    def _keep_on_after_sunrise(self, run: Run) -> bool:
+        keep = bool(run.light) and self.behaviour.keep_on_after_sunrise(run.light, self.clock.now())
+        self._behaviour_saved()
+        return keep
 
     async def _refresh_soon(self, ieee: str) -> None:
         await asyncio.sleep(ANNOUNCE_SETTLE_S)  # give a booting lamp a moment
@@ -377,10 +529,12 @@ class Service:
                 ):
                     continue
                 before = (controller.reachable, asdict(controller.state))
+                was_on = controller.state.on
                 with contextlib.suppress(LightError, TimeoutError):
                     await self._poll_lamp(controller)
                 next_poll[ieee] = time.monotonic() + poll_delay(controller.failures)
                 if (controller.reachable, asdict(controller.state)) != before:
+                    self._lamp_seen(ieee, was_on)
                     self.notify()
 
     def _set_power_on_policy(self, ieee: str) -> bool:
@@ -401,6 +555,10 @@ class Service:
     async def _finished(self, run: Run, result: str) -> None:
         if result == "interrupted":
             return  # process shutdown: resume after restart
+        if run.light and run.light in self.registry.controllers:
+            lamp_on = self.registry.controller(run.light).state.on is True
+            self.behaviour.sunrise_ended(run.light, lamp_on, self.clock.now())
+            self._behaviour_saved()
         record = {
             "kind": run.kind,
             "key": run.key,
@@ -450,22 +608,33 @@ class Service:
         controller = self.registry.controller(ieee)
         if ieee == self.settings.wakeup.light:
             await self.stop_sunrise("manual control")
-        match action:
-            case "on" | "off" | "toggle":
-                async with controller.lock:
-                    if action == "toggle":
-                        action = "off" if controller.state.on else "on"
-                    if action == "on":
-                        await controller.on()
-                    else:
-                        park = controller.caps.max_mireds if controller.caps.supports_ct else None
-                        await controller.off(park_mireds=park)
-            case "level" | "kelvin":
-                if value is None:
-                    raise SettingsError(f"{action} needs a value")
-                await self._live_sender(ieee).submit(action, int(value))
-            case _:
-                raise SettingsError(f"Unknown light action {action!r}")
+        if action == "toggle":
+            action = "off" if controller.state.on else "on"
+        if action not in ("on", "off", "level", "kelvin"):
+            raise SettingsError(f"Unknown light action {action!r}")
+        if action in ("level", "kelvin") and value is None:
+            raise SettingsError(f"{action} needs a value")
+        # Manual wins: from now on motion leaves this lamp alone (or, after an off,
+        # until the room has been empty for a while).
+        self.behaviour.manual(ieee, action != "off", self.clock.now())
+        self._behaviour_saved()
+        if action in ("level", "kelvin"):
+            self._remember_manual(ieee, action, int(value))
+            await self._live_sender(ieee).submit(action, int(value))
+            return
+        async with controller.lock:
+            if action == "on":
+                await controller.on()
+            else:
+                await controller.off(**self._park(ieee, controller))
+
+    def _remember_manual(self, ieee: str, action: str, value: int) -> None:
+        """The last level and warmth set by hand (a remote's "on" will restore them)."""
+        last = self.settings.light_settings(ieee).last_manual
+        if action == "level":
+            last.level = max(MIN_LEVEL, min(254, value))
+        else:
+            last.kelvin = max(1500, min(6500, value))
 
     def _live_sender(self, ieee: str) -> LatestWins:
         if ieee not in self._live:
@@ -497,15 +666,11 @@ class Service:
             await asyncio.sleep(1)
         now = self.clock.now()
         end = now + timedelta(minutes=minutes)
-        self.manager.start(
-            Run(
-                kind="test",
-                start=now,
-                end=end,
-                off=end + timedelta(seconds=TEST_HOLD_S),
-                light=ieee,
-            )
+        run = Run(
+            kind="test", start=now, end=end, off=end + timedelta(seconds=TEST_HOLD_S), light=ieee
         )
+        self.manager.start(run)
+        self._sunrise_started(run)
 
     async def set_wakeup_light(self, ieee: str | None) -> None:
         if ieee is not None:
@@ -565,6 +730,35 @@ class Service:
             self.settings.night = previous
             raise
 
+    def update_motion(self, sensor: str, data: dict) -> None:
+        """Create or replace the motion rule of a sensor."""
+        device = self.settings.devices.get(sensor)
+        if device is None or device.kind != "motion":
+            raise SettingsError(f"{sensor} is not a motion sensor")
+        lights = [str(x) for x in data.get("lights", [])]
+        for ieee in lights:
+            self.registry.controller(ieee)  # must be a lamp
+        rule = MotionRule(
+            sensor=sensor,
+            lights=lights,
+            enabled=bool(data.get("enabled", True)),
+            dark_lux=None if data.get("dark_lux") is None else int(data["dark_lux"]),
+            off_after_min=int(data.get("off_after_min", 5)),
+            day=Profile(**data["day"]) if "day" in data else Profile(254, 2700),
+            night=Profile(**data["night"]) if "night" in data else Profile(13, 2200),
+        )
+        previous = self.settings.motion
+        self.settings.motion = [r for r in previous if r.sensor != sensor] + [rule]
+        try:
+            self._save_settings()  # validates: one rule per lamp, sane profiles
+        except SettingsError:
+            self.settings.motion = previous
+            raise
+
+    def remove_motion(self, sensor: str) -> None:
+        self.settings.motion = [r for r in self.settings.motion if r.sensor != sensor]
+        self._save_settings()
+
     def update_device(self, ieee: str, data: dict) -> None:
         device = self.settings.devices.get(ieee)
         if device is None:
@@ -592,6 +786,8 @@ class Service:
             await self.zigbee.remove(zigpy.types.EUI64.convert(ieee))  # leave runs in background
         self.registry.remove(ieee)
         self._live.pop(ieee, None)
+        self.behaviour.lamps.pop(ieee, None)
+        self.behaviour.sensors.pop(ieee, None)
         self._attach_wakeup()
         self._save_settings()
 
@@ -627,10 +823,41 @@ class Service:
             **self._light_fields(controller),
             "reachable": controller.reachable,
             "last_report": controller.last_report,
+            **self._owner_fields(ieee),
             "wakeup": ieee == self.settings.wakeup.light,
             "power_on": self.settings.light_settings(ieee).power_on,
-            "owner": None,  # filled in by the behaviour layer (phase 3/4)
         }
+
+    def _owner_fields(self, ieee: str) -> dict:
+        memo = self.behaviour.lamp(ieee)
+        return {
+            "owner": memo.owner,
+            "owner_until": memo.off_at.isoformat() if memo.off_at else None,
+            "profile": memo.profile,
+            "has_motion": self.behaviour.rule_for_lamp(ieee) is not None,
+        }
+
+    def sensor_list(self) -> list[dict]:
+        result = []
+        for ieee, device in self.settings.devices.items():
+            if device.kind != "motion":
+                continue
+            memo = self.behaviour.sensor(ieee)
+            rule = next((r for r in self.settings.motion if r.sensor == ieee), None)
+            result.append(
+                {
+                    "ieee": ieee,
+                    "name": device.name,
+                    "room": device.room,
+                    "occupied": memo.occupied,
+                    "last_report": memo.last_report.isoformat() if memo.last_report else None,
+                    "lux": memo.raw_lux,
+                    "battery": memo.battery,
+                    "configured": device.configured,
+                    "rule": asdict(rule) if rule else None,
+                }
+            )
+        return result
 
     @staticmethod
     def _light_fields(controller: LightController) -> dict:
@@ -684,6 +911,7 @@ class Service:
             "lights": [self.lamp_status(ieee) for ieee in self.registry.light_ieees()],
             "wakeup": {"light": wakeup.light, "alarms": alarms, "ramp": ramp},
             "night": asdict(settings.night),
+            "sensors": self.sensor_list(),
             "sunrise": run.status(now) if run else None,
             "upcoming": [
                 {
@@ -705,14 +933,20 @@ class Service:
 
 
 async def serve(
-    store: Store, *, host: str, port: int, fake: bool = False, fake_lamps: int = 2
+    store: Store,
+    *,
+    host: str,
+    port: int,
+    fake: bool = False,
+    fake_lamps: int = 2,
+    fake_sensors: int = 0,
 ) -> int:
     """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
     systemd can restart us: a process that hangs after an error never gets restarted."""
     from kotivalo.web import make_web_app
     from kotivalo.zigbee import NetworkNotFormedError, RadioError
 
-    service = Service(store, fake=fake, fake_lamps=fake_lamps)
+    service = Service(store, fake=fake, fake_lamps=fake_lamps, fake_sensors=fake_sensors)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, service.request_stop)

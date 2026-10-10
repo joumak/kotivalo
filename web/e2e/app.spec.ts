@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { APIRequestContext, Page } from '@playwright/test'
 
 const LAMP = '00:00:00:00:00:00:00:02'
+const SENSOR = '00:00:00:00:00:00:00:f1'
 
 async function state(request: APIRequestContext) {
   return (await request.get('/api/state')).json()
@@ -15,6 +16,8 @@ async function reset(request: APIRequestContext) {
     await request.post(`/api/lights/${ieee}`, { data: { action: 'off' } })
   }
   await request.put('/api/night', { data: { start: '23:00', end: '07:00' } })
+  await request.delete(`/api/motion/${SENSOR}`)
+  await request.put(`/api/devices/${SENSOR}`, { data: { name: 'Eteisen tunnistin', room: 'Eteinen' } })
   const alarms = Array.from({ length: 7 }, () => ({ enabled: false, time: '07:00' }))
   await request.put('/api/wakeup', { data: { alarms } })
 }
@@ -75,4 +78,13 @@ test('wall panel at night: the first touch only wakes the screen', async ({ page
   await wake.click()
   await expect(page.getByRole('button', { name: /^Lukuvalo/ })).toBeVisible()
   for (const l of (await state(request)).lights) expect(l.state.on).toBe(false) // nothing switched
+})
+
+test('sets up motion lighting for a lamp', async ({ page, request }) => {
+  await open(page, '#/devices')
+  await page.getByRole('button', { name: 'Eteisen tunnistin: liikevalot' }).first().click()
+  await page.getByRole('switch', { name: /^Lukuvalo/ }).click()
+  await page.getByRole('button', { name: 'Tallenna' }).click()
+  await expect.poll(async () => (await state(request)).sensors[0].rule?.lights).toEqual([LAMP])
+  await expect(page.getByRole('dialog')).toBeHidden()
 })

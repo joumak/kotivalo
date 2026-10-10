@@ -271,6 +271,7 @@ class State:
 
     skipped: list[str] = field(default_factory=list)  # alarm keys (UTC ISO) skipped or stopped
     last_run: dict[str, Any] | None = None
+    behaviour: dict[str, Any] = field(default_factory=dict)  # owner per lamp (behaviour.py)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> State:

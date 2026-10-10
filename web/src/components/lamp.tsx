@@ -1,4 +1,4 @@
-import { Power, Sunrise } from 'lucide-react'
+import { Activity, Power, Sunrise } from 'lucide-react'
 import { useCallback } from 'react'
 
 import { useActions } from '@/api/actions'
@@ -6,7 +6,7 @@ import type { Lamp, Snapshot } from '@/api/types'
 import { LightSlider } from '@/components/light-slider'
 import { useT } from '@/i18n'
 import { levelPercent, percentToLevel } from '@/lib/format'
-import { glowStyle, isLit, lampColor, lampStatus } from '@/lib/lamp-state'
+import { glowStyle, isLit, lampColor, lampStatus, sensorFor } from '@/lib/lamp-state'
 import { DEFAULT_KELVIN, kelvinToRgb, rgb } from '@/lib/light-color'
 import { useLiveValue } from '@/lib/use-live-value'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,7 @@ export function LampTile({ lamp, snapshot, selected, onSelect }: LampTileProps) 
   const actions = useActions()
   const lit = isLit(lamp)
   const color = lampColor(lamp)
+  const sensor = sensorFor(lamp, snapshot)
   return (
     <div
       className={cn(
@@ -41,7 +42,15 @@ export function LampTile({ lamp, snapshot, selected, onSelect }: LampTileProps) 
       />
       <div className="pointer-events-none relative flex items-start justify-between gap-2">
         <span className="text-base leading-snug font-medium text-balance">{lamp.name}</span>
-        {lamp.wakeup && <Sunrise className="mt-0.5 size-4 shrink-0 text-ember" aria-label={t.lamp.wakeupLamp} />}
+        <span className="mt-0.5 flex shrink-0 gap-1.5">
+          {sensor && (
+            <Activity
+              className={cn('size-4', sensor.occupied ? 'text-ember' : 'text-muted-foreground/60')}
+              aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
+            />
+          )}
+          {lamp.wakeup && <Sunrise className="size-4 text-ember" aria-label={t.lamp.wakeupLamp} />}
+        </span>
       </div>
       <div className="relative flex items-end justify-between gap-2">
         <span className="pointer-events-none text-sm text-muted-foreground">{lampStatus(lamp, snapshot, t)}</span>

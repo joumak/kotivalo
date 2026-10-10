@@ -195,12 +195,18 @@ class LightController:
         await self._run(light.on)
         self.state.on = True
 
-    async def off(self, park_mireds: int | None = None) -> None:
-        """Switch off; first 'park' at a warm CT so the next switch-on starts warm."""
+    async def off(self, park_mireds: int | None = None, park_level: int | None = None) -> None:
+        """Switch off, first 'parking' the lamp so its next switch-on starts there: warm
+        (park_mireds), and for the wake-up lamp also at minimum brightness (park_level),
+        so a sunrise or night light never starts with a flash of the old setting."""
         light = self._require()
-        if park_mireds is not None and self.caps.supports_ct and self.state.on is not False:
-            await self.set_ct(park_mireds)
-            await asyncio.sleep(0.5)
+        if self.state.on is not False:
+            if park_mireds is not None and self.caps.supports_ct:
+                await self.set_ct(park_mireds)
+                await asyncio.sleep(0.3)
+            if park_level is not None:
+                await self.set_level(park_level, 0)
+                await asyncio.sleep(0.3)
         await self._run(light.off)
         self.state.on = False
 

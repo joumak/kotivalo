@@ -19,6 +19,7 @@ async function reset(request: APIRequestContext) {
   await request.put('/api/night', { data: { start: '23:00', end: '07:00' } })
   await request.delete(`/api/motion/${SENSOR}`)
   await request.delete(`/api/remotes/${REMOTE}`)
+  await request.put('/api/weather', { data: { lat: null, lon: null } })
   await request.put(`/api/devices/${SENSOR}`, { data: { name: 'Eteisen tunnistin', room: 'Eteinen' } })
   const alarms = Array.from({ length: 7 }, () => ({ enabled: false, time: '07:00' }))
   await request.put('/api/wakeup', { data: { alarms } })
@@ -111,4 +112,15 @@ test('a remote switches the lamps chosen for it', async ({ page, request }) => {
   await request.post('/api/fake/event', { data: { type: 'button', ieee: REMOTE, value: 'on' } })
   await expect.poll(async () => (await lamp(request)).state.on).toBe(true)
   await expect(page.getByText(/Painettu juuri nyt: Päälle/)).toBeVisible()
+})
+
+test('shows the weather once a place is set', async ({ page, request }) => {
+  await open(page, '#/settings')
+  await page.getByLabel('Paikkakunta tai 60.17, 24.94').fill('60.17, 24.94')
+  await page.getByRole('button', { name: 'Hae' }).click()
+  await page.getByRole('button', { name: '60.17, 24.94' }).click()
+  await expect.poll(async () => (await state(request)).weather.location?.lat).toBe(60.17)
+  await page.evaluate(() => (window.location.hash = '#/lights'))
+  await expect(page.getByText(/^Sää nyt: /)).toBeAttached()
+  await expect(page.getByText(/^-?\d+°$/).first()).toBeVisible()
 })

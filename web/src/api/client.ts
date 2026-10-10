@@ -1,4 +1,4 @@
-import type { Alarm, MotionRule, Ramp, Snapshot } from './types'
+import type { Alarm, MotionRule, Place, Ramp, Snapshot, WeatherPlace } from './types'
 
 const TOKEN_KEY = 'kotivalo-token'
 
@@ -64,6 +64,22 @@ export const api = {
   testSunrise: (minutes: number) => request('POST', '/api/sunrise/test', { minutes }),
   stopSunrise: () => request('POST', '/api/sunrise/stop', {}),
   permit: (seconds: number) => request('POST', '/api/permit', { seconds }),
+  weather: (place: WeatherPlace | null) => request('PUT', '/api/weather', place ?? { lat: null, lon: null }),
+  searchPlaces,
+}
+
+/** Places for the weather (or the typed coordinates), looked up by the Pi. */
+async function searchPlaces(query: string, lang: string): Promise<Place[]> {
+  let response: Response
+  try {
+    const q = encodeURIComponent(query)
+    response = await fetch(`/api/weather/places?q=${q}&lang=${lang}`, { headers: { 'X-Token': getToken() } })
+  } catch {
+    throw new ApiError(0, 'unreachable')
+  }
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(response.status, data.error ?? `HTTP ${response.status}`)
+  return data.places as Place[]
 }
 
 export function eventsUrl(): string {

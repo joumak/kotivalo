@@ -7,6 +7,7 @@ import { useLive } from '@/api/live'
 import type { Lamp, Snapshot } from '@/api/types'
 import { SunriseBand } from '@/components/sunrise-band'
 import { Button } from '@/components/ui/button'
+import { WeatherLine } from '@/components/weather-line'
 import { useT } from '@/i18n'
 import { formatTime, levelPercent, percentToLevel, weekdayName } from '@/lib/format'
 import { glowStrength, rgb } from '@/lib/light-color'
@@ -79,6 +80,7 @@ function ClockColumn({ snapshot, now, onMenu, night }: { snapshot: Snapshot; now
             {clock}
           </p>
           <p className="mt-3 text-[clamp(1.25rem,2.6vw,2rem)] text-muted-foreground first-letter:uppercase">{date}</p>
+          <WeatherLine snapshot={snapshot} size="panel" className="mt-4" />
         </div>
         <Button size="icon-lg" variant="ghost" aria-label={t.panel.menu} onClick={onMenu}>
           <Menu className="size-6" />

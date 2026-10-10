@@ -10,6 +10,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
+import aiohttp
 from aiohttp import web
 
 from kotivalo import systemd
@@ -37,9 +38,11 @@ from kotivalo.settings import (
     RemoteBinding,
     SettingsError,
     Store,
+    WeatherSettings,
     is_fake,
 )
 from kotivalo.sunrise import Run, SunriseManager
+from kotivalo.weather import Forecast, MetClient, fake_forecast, next_refresh, parse_met
 
 LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +68,9 @@ STEP_LEVELS = 51  # one tap of a remote's up/down: 20 %
 WARMTH_STEP_MIREDS = 40  # one arrow tap
 WARMTH_REPEAT_S = 0.4  # while an arrow is held
 HOLD_LIMIT_S = 10  # a held arrow whose release never arrived stops by itself
+WEATHER_RETRY_S = 300  # after a failed weather fetch, doubling up to WEATHER_RETRY_MAX_S
+WEATHER_RETRY_MAX_S = 1800
+WEATHER_STALE_S = 3 * 3600  # older weather is not shown
 CONFIGURE_RETRY_S = 300  # a sleepy device that failed setup is retried at most this often
 
 
@@ -145,6 +151,11 @@ class Service:
         self.remote_memo: dict[str, dict] = {}  # battery and last press, until a restart
         self._repeats: dict[str, asyncio.Task] = {}  # held arrows, per remote
         self.firmware: dict[str, dict] = {}  # firmware updates: state and progress
+        self.weather: Forecast | None = None
+        self.weather_fetched: datetime | None = None
+        self.fetch_weather = MetClient().fetch  # (lat, lon) -> (json, expires); tests replace it
+        self._weather_changed = asyncio.Event()
+        self._weather_failures = 0
 
     # --- lifecycle ---------------------------------------------------------------
 
@@ -195,6 +206,7 @@ class Service:
         self._spawn(self._consume_events())
         self._spawn(self._poll_lamps())
         self._spawn(self._behaviour_loop())
+        self._spawn(self._weather_loop())
         if self.zigbee is not None:
             self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
 
@@ -851,6 +863,94 @@ class Service:
             self.settings.devices[ieee].configured = False
             self._save_settings()
 
+    # --- weather -----------------------------------------------------------------------
+
+    async def _weather_loop(self) -> None:
+        """Keeps the forecast fresh: when MET says it expires, sooner when the place changes."""
+        while True:
+            self._weather_changed.clear()
+            delay = await self._refresh_weather() if self.settings.weather.enabled else None
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(delay):
+                    await self._weather_changed.wait()
+
+    async def _refresh_weather(self) -> float:
+        """Fetches the forecast; returns seconds until the next try."""
+        place = self.settings.weather
+        now = self.clock.now()
+        try:
+            if self.fake:
+                forecast, expires = fake_forecast(now), None
+            else:
+                data, expires = await self.fetch_weather(place.lat, place.lon)
+                forecast = parse_met(data)
+                if forecast is None:
+                    raise ValueError("no hourly forecast in the response")
+        except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
+            self._weather_failures += 1
+            if self._weather_failures == 1:
+                LOGGER.warning("Weather for %s failed: %r", place.name or "home", exc)
+            return min(WEATHER_RETRY_MAX_S, WEATHER_RETRY_S * 2 ** (self._weather_failures - 1))
+        if self.settings.weather is not place:  # moved while fetching: fetch the new place
+            return 0.0
+        first = self.weather is None or self._weather_failures > 0
+        self._weather_failures = 0
+        self.weather, self.weather_fetched = forecast, now
+        wait = next_refresh(expires, now)
+        log = LOGGER.info if first else LOGGER.debug
+        log("Weather for %s updated, next in %d min", place.name or "home", wait // 60)
+        self.notify()
+        return wait
+
+    def update_weather(self, data: dict) -> None:
+        """Set the place to show the weather for; lat/lon null switches the weather off."""
+        lat, lon = data.get("lat"), data.get("lon")
+        if lat is None or lon is None:
+            place = WeatherSettings()
+        else:
+            try:
+                lat, lon = round(float(lat), 2), round(float(lon), 2)
+            except (TypeError, ValueError):
+                raise SettingsError("Latitude and longitude must be numbers") from None
+            place = WeatherSettings(str(data.get("name", "")).strip(), lat, lon)
+        previous = self.settings.weather
+        self.settings.weather = place
+        try:
+            self._save_settings()
+        except SettingsError:
+            self.settings.weather = previous
+            raise
+        if (place.lat, place.lon) != (previous.lat, previous.lon):
+            self.weather, self.weather_fetched, self._weather_failures = None, None, 0
+            self._weather_changed.set()
+
+    async def search_places(self, query: str, language: str) -> list[dict]:
+        from kotivalo.weather import parse_coordinates, search_places
+
+        if self.fake and parse_coordinates(query) is None:
+            places = [("Helsinki", "Uusimaa", 60.17, 24.94), ("Espoo", "Uusimaa", 60.21, 24.66)]
+            return [
+                {"name": n, "region": r, "country": "Suomi", "lat": lat, "lon": lon}
+                for n, r, lat, lon in places
+                if query.strip().lower() in n.lower()
+            ]
+        return await search_places(query, language)
+
+    def weather_status(self) -> dict:
+        place = self.settings.weather
+        now = self.clock.now()
+        fresh = (
+            self.weather_fetched is not None
+            and (now - self.weather_fetched).total_seconds() < WEATHER_STALE_S
+        )
+        return {
+            "location": (
+                {"name": place.name, "lat": place.lat, "lon": place.lon} if place.enabled else None
+            ),
+            "forecast": self.weather.view(now) if self.weather and place.enabled else None,
+            "stale": not fresh,
+        }
+
     def update_remote(self, remote: str, data: dict) -> None:
         """Which lamps a remote controls."""
         if self._kind(remote) != "remote":
@@ -1177,6 +1277,7 @@ class Service:
             "night": asdict(settings.night),
             "sensors": self.sensor_list(),
             "remotes": self.remote_list(),
+            "weather": self.weather_status(),
             "sunrise": run.status(now) if run else None,
             "upcoming": [
                 {

@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 
+import aiohttp
 from aiohttp import web
 
 from kotivalo.light import LightError
@@ -155,6 +156,21 @@ async def post_firmware(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def put_weather(request: web.Request) -> web.Response:
+    service_of(request).update_weather(await request.json())
+    return ok(request)
+
+
+async def get_places(request: web.Request) -> web.Response:
+    query = request.query.get("q", "")
+    language = request.query.get("lang", "fi")
+    try:
+        places = await service_of(request).search_places(query, language)
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        return web.json_response({"error": f"Place search failed: {exc!r}"}, status=502)
+    return web.json_response({"places": places})
+
+
 async def put_night(request: web.Request) -> web.Response:
     service_of(request).update_night(await request.json())
     return ok(request)
@@ -221,6 +237,8 @@ def make_web_app(service) -> web.Application:
     router.add_put("/api/remotes/{ieee}", put_remote)
     router.add_delete("/api/remotes/{ieee}", delete_remote)
     router.add_post("/api/remotes/{ieee}/firmware", post_firmware)
+    router.add_put("/api/weather", put_weather)
+    router.add_get("/api/weather/places", get_places)
     router.add_post("/api/sunrise/test", post_test)
     router.add_post("/api/sunrise/stop", post_stop)
     router.add_post("/api/skip", post_skip)

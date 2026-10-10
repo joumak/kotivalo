@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { WeatherLine } from '@/components/weather-line'
 import { useT } from '@/i18n'
 import { glowStyle, isLit, lampStatus, motionMode } from '@/lib/lamp-state'
 import { useLayout } from '@/lib/layout'
@@ -56,6 +57,7 @@ export function LightsPage() {
     return (
       <>
         <PageTitle>{t.nav.lights}</PageTitle>
+        <WeatherLine snapshot={snapshot} className="-mt-2 mb-6" />
         <div className="grid grid-cols-[1fr_minmax(18rem,24rem)] items-start gap-8">
           {grid}
           <aside className="sticky top-4 rounded-3xl border bg-card p-6" style={current ? glowStyle(current, 0.5) : {}}>
@@ -74,6 +76,7 @@ export function LightsPage() {
   return (
     <>
       <PageTitle>{t.nav.lights}</PageTitle>
+      <WeatherLine snapshot={snapshot} className="-mt-2 mb-6" />
       {grid}
       {layout === 'short' ? (
         <Sheet open={!!current} onOpenChange={(open) => !open && close()}>

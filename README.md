@@ -7,6 +7,7 @@ Finnish: *koti* (home) + *valo* (light).
 - **Wake-up light:** before each alarm the wake-up lamp fades in from a dim warm glow to full, cooler white.
 - **Motion lighting:** an IKEA VALLHORN sensor switches lamps on when it's dark, with a dim night light at night, and off when the room has been empty for a while.
 - **Remotes:** IKEA remotes control the lamps you choose, through the Pi.
+- **Weather:** the current weather and the next few hours, on the Lights page and the wall panel.
 - **Languages:** the UI is in Finnish and English, switchable per screen.
 
 Web UI: `http://kotivalo.local:8080`, or by IP (currently `http://192.168.1.174:8080`) on phones that do not resolve `.local` names.
@@ -107,11 +108,20 @@ Choose the wake-up lamp under Laitteet (the sunrise icon), and the alarm days an
 - **Unpowered lamps don't block startup.** Lamps switched off at the wall are controllable again once they have power.
 - **The Wake-up page shows how the last alarm went.**
 
+## Weather
+
+Set the place under **Asetukset → Sää**: search for your town, or type its coordinates (`60.17, 24.94`), then tap the result.
+- **What it shows:** a line on the Lights page and the wall panel with the current weather (icon, temperature, wind) and the next three 3-hour marks, e.g. 18, 21, 00.
+- **Updates:** the Pi fetches the forecast from MET Norway, the data behind yr.no, when the previous one expires (about every 30 minutes).
+- **If a fetch fails:** the last forecast stays for up to 3 hours, then the line is hidden.
+- **Location privacy:** the place is stored rounded to about 1 km. The search uses Open-Meteo's geocoder, and only when you search.
+- **Source:** weather data from MET Norway (yr.no), CC BY 4.0.
+
 ## Wall panel
 
 On a tablet mounted on a wall or by the bed, open the UI and switch on **Asetukset → Tämä näyttö on seinäpaneeli** ("This screen is a wall panel"). The setting applies to that screen only.
 
-- The panel shows a large clock, the next alarm (with skip) and the lamps.
+- The panel shows a large clock, the weather, the next alarm (with skip) and the lamps.
 - **Tap** a lamp tile to switch it. **Press and drag** up or down to set its brightness.
 - **At night** the screen is almost black with a dim amber clock, which drifts a little to prevent burn-in. The first touch only wakes the screen, so it never switches a lamp by accident.
 - The menu button opens the full app. After 3 minutes untouched, the panel returns to its dashboard.
@@ -147,12 +157,13 @@ Battery devices are set up while they're awake: right after joining, or after a 
 | `src/kotivalo/registry.py`, `settings.py` | devices and lamps; versioned `settings.json` |
 | `src/kotivalo/zigbee.py`, `events.py` | zigpy: startup, binding, reports and presses as events, firmware updates |
 | `src/kotivalo/xbee_config.py` | raw XBee AT frames (one-time setup, `radio-info`) |
+| `src/kotivalo/weather.py` | MET Norway forecast: fetch, parse, place search |
 | `src/kotivalo/app.py`, `web.py` | the service, JSON API and live-update stream |
 | `web/` | the React UI (built into `src/kotivalo/static/`) |
 | `deploy/` | `pi-setup.sh`, `deploy.sh`, systemd unit |
 
 State lives in `/var/lib/kotivalo` on the Pi:
-- `settings.json`: devices, lamps, wake-up, night, motion rules, remotes, radio
+- `settings.json`: devices, lamps, wake-up, night, motion rules, remotes, weather place, radio
 - `state.json`: skipped alarms, last run, lamp owners and timers
 - `zigbee.db`: zigpy's device database, including the network key
 

@@ -17,7 +17,8 @@ Done, in order:
 | 3 | lamp reports and polling | `16e3994` |
 | 4 | owner model, motion lighting | `ff7da08`, `b2fe5d8` |
 | 5 | remotes and remote firmware updates | `f15ed72`, `f1ff0c8` |
-| 6 | docs | |
+| 6 | docs | `740ad03` |
+| — | weather line (MET Norway / yr.no), off the original plan | |
 
 ---
 
@@ -97,7 +98,12 @@ A Sonoff ZBDongle-E (EZSP) or ZBDongle-P (ZNP) would bring:
 
 The code talks to zigpy's generic API, so swapping is a settings change plus re-pairing (see the README).
 
-### 5. HTTPS on the LAN and an installable app
+### 5. Weather ideas
+
+- The forecast for the next alarm time on the Herätys page ("Aamulla 6.30: 🌧 3°").
+- FMI's measured temperature from the nearest station, as "now" in Finland, if yr.no's model value feels off.
+
+### 6. HTTPS on the LAN and an installable app
 
 - A local CA (mkcert) would enable the Wake Lock API, so the wall panel's screen stays on without kiosk apps.
 - It would also make the UI installable as an app (PWA).

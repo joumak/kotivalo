@@ -143,6 +143,27 @@ class NightWindow:
 
 
 @dataclass
+class WeatherSettings:
+    """Where to show the weather for. Coordinates are kept to 2 decimals (about 1 km)."""
+
+    name: str = ""
+    lat: float | None = None
+    lon: float | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.lat is not None and self.lon is not None
+
+    def validate(self) -> None:
+        if len(self.name) > 40:
+            raise SettingsError("Weather place name must be at most 40 characters")
+        if self.lat is not None and not -90 <= self.lat <= 90:
+            raise SettingsError("Latitude must be -90..90")
+        if self.lon is not None and not -180 <= self.lon <= 180:
+            raise SettingsError("Longitude must be -180..180")
+
+
+@dataclass
 class MotionRule:
     sensor: str = ""
     lights: list[str] = field(default_factory=list)
@@ -170,6 +191,7 @@ class Settings:
     night: NightWindow = field(default_factory=NightWindow)
     motion: list[MotionRule] = field(default_factory=list)
     remotes: list[RemoteBinding] = field(default_factory=list)
+    weather: WeatherSettings = field(default_factory=WeatherSettings)
     web_token: str | None = None  # if set, the web API requires it
 
     @property
@@ -192,6 +214,7 @@ class Settings:
         self.wakeup.ramp.validate()
         _check_time(self.night.start, "Night start")
         _check_time(self.night.end, "Night end")
+        self.weather.validate()
         for ieee, device in self.devices.items():
             if device.kind not in DEVICE_KINDS:
                 raise SettingsError(f"{ieee}: unknown device kind {device.kind!r}")

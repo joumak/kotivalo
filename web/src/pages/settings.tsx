@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useActions } from '@/api/actions'
-import { getToken, setToken } from '@/api/client'
+import { api, getToken, setToken } from '@/api/client'
 import { useLive, useLiveState } from '@/api/live'
+import type { Place } from '@/api/types'
 import { PageTitle } from '@/components/shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,7 @@ import { Switch } from '@/components/ui/switch'
 import { LANGS, useLang } from '@/i18n'
 import type { Lang } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { describePlace } from '@/lib/weather'
 
 interface SettingsPageProps {
   panel: boolean
@@ -57,6 +59,7 @@ export function SettingsPage({ panel, onPanel }: SettingsPageProps) {
         </section>
 
         <NightWindow />
+        <WeatherSettings />
         <AccessCode />
       </div>
     </>
@@ -97,6 +100,94 @@ function NightWindow() {
           {t.settings.saveNight}
         </Button>
       </div>
+    </section>
+  )
+}
+
+/** Where the weather is for: search a town (or type coordinates), tap a result. */
+function WeatherSettings() {
+  const { t, lang } = useLang()
+  const { snapshot } = useLive()
+  const actions = useActions()
+  const [query, setQuery] = useState('')
+  const [places, setPlaces] = useState<Place[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  if (!snapshot) return null
+  const location = snapshot.weather.location
+
+  const search = async () => {
+    setBusy(true)
+    try {
+      setPlaces(await api.searchPlaces(query, lang))
+    } catch {
+      setPlaces(null)
+      toast.error(t.weather.searchFailed)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const choose = async (place: Place) => {
+    if (await actions.weather({ name: place.name, lat: place.lat, lon: place.lon })) {
+      setPlaces(null)
+      setQuery('')
+      toast.success(t.settings.saved)
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="text-lg font-medium">{t.weather.title}</h2>
+      <p className="mt-1 mb-4 text-muted-foreground">{t.weather.help}</p>
+      {location ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card py-2 pr-2 pl-4">
+          <p>{t.weather.showing(describePlace(location))}</p>
+          <Button variant="ghost" onClick={() => actions.weather(null)}>
+            {t.weather.remove}
+          </Button>
+        </div>
+      ) : (
+        <p className="mb-4 text-sm text-muted-foreground">{t.weather.none}</p>
+      )}
+      <form
+        className="flex flex-wrap gap-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void search()
+        }}
+      >
+        <Label htmlFor="weather-place" className="sr-only">
+          {t.weather.placeholder}
+        </Label>
+        <Input
+          id="weather-place"
+          value={query}
+          placeholder={t.weather.placeholder}
+          onChange={(e) => setQuery(e.target.value)}
+          className="h-11 max-w-72"
+        />
+        <Button type="submit" variant="outline" disabled={busy || query.trim().length < 2}>
+          {t.weather.search}
+        </Button>
+      </form>
+      {places &&
+        (places.length === 0 ? (
+          <p className="mt-3 text-muted-foreground">{t.weather.noResults}</p>
+        ) : (
+          <ul className="mt-3 divide-y rounded-2xl border bg-card">
+            {places.map((place) => (
+              <li key={`${place.lat},${place.lon}`}>
+                <button
+                  type="button"
+                  onClick={() => choose(place)}
+                  className="min-h-11 w-full rounded-2xl px-4 py-2.5 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/60 focus-visible:outline-none"
+                >
+                  {describePlace(place)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ))}
+      <p className="mt-4 text-sm text-muted-foreground">{t.weather.attribution}</p>
     </section>
   )
 }

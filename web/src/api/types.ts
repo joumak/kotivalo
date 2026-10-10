@@ -100,6 +100,31 @@ export interface FirmwareUpdate {
   progress: number // percent
 }
 
+export interface WeatherPoint {
+  time: string // UTC ISO, the start of the hour
+  temperature: number // °C
+  symbol: string | null // MET symbol code, e.g. "partlycloudy_day"
+  wind: number | null // m/s
+  precipitation: number | null // mm in the following hour
+}
+
+export interface WeatherPlace {
+  name: string
+  lat: number
+  lon: number
+}
+
+export interface Weather {
+  location: WeatherPlace | null
+  forecast: { updated: string | null; now: WeatherPoint; hours: WeatherPoint[] } | null
+  stale: boolean // the last good forecast is too old to show
+}
+
+export interface Place extends WeatherPlace {
+  region: string
+  country: string
+}
+
 export interface Alarm {
   enabled: boolean
   time: string // HH:MM, local
@@ -167,6 +192,7 @@ export interface Snapshot {
   night: { start: string; end: string }
   sensors: Sensor[]
   remotes: Remote[]
+  weather: Weather
   sunrise: SunriseRun | null
   upcoming: Upcoming[]
   last_run: RunRecord | null

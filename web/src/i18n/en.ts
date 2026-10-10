@@ -1,6 +1,7 @@
 // English UI text. `fi.ts` must provide every key (the type checker enforces it).
 
 import type { RemoteAction } from '@/api/types'
+import type { Condition } from '@/lib/weather'
 
 const ago = (minutes: number) =>
   minutes < 1
@@ -121,6 +122,35 @@ export const en = {
     warmth: 'Warmth',
     save: 'Save',
     notConfigured: 'Setting up: move in front of the sensor to wake it.',
+  },
+  weather: {
+    conditions: {
+      clear: 'clear',
+      partlyCloudy: 'partly cloudy',
+      cloudy: 'cloudy',
+      fog: 'fog',
+      lightRain: 'light rain',
+      rain: 'rain',
+      showers: 'showers',
+      sleet: 'sleet',
+      snow: 'snow',
+      thunder: 'thunder',
+      unknown: 'weather unknown',
+    } satisfies Record<Condition, string>,
+    wind: (ms: number) => `${ms} m/s`,
+    now: (condition: string, temperature: string) => `Weather now: ${condition}, ${temperature}`,
+    windNow: (wind: string) => `wind ${wind}`,
+    at: (hour: string, condition: string, temperature: string) => `at ${hour}: ${condition}, ${temperature}`,
+    title: 'Weather',
+    help: 'Shown on the Lights page and the wall panel. Search for your town, or type its coordinates.',
+    placeholder: 'Town, or 60.17, 24.94',
+    search: 'Search',
+    noResults: 'No places found.',
+    searchFailed: "Couldn't search for places. Check the Pi's internet connection.",
+    showing: (place: string) => `Weather: ${place}`,
+    none: 'No place set, so no weather is shown.',
+    remove: 'Remove',
+    attribution: 'Weather data: MET Norway (yr.no), CC BY 4.0.',
   },
   remote: {
     settings: (name: string) => `${name}: lamps`,

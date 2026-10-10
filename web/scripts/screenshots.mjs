@@ -63,6 +63,7 @@ async function seed({ nightNow }) {
     ? { start: hhmm(new Date(now - 3600e3)), end: hhmm(new Date(+now + 3600e3)) }
     : { start: '23:00', end: '07:00' }
   await call('PUT', '/api/night', night)
+  await call('PUT', '/api/weather', { name: 'Helsinki', lat: 60.17, lon: 24.94 }) // a canned forecast
 }
 
 const browser = await chromium.launch()

@@ -1009,6 +1009,71 @@ class Service:
             )
         return result
 
+    # --- master switch -----------------------------------------------------------------
+
+    async def master_switch(self, action: str) -> None:
+        """ "off": remember the lit lamps (brightness, warmth, owner) and switch everything
+        off. "on": bring the remembered lamps back (motion-lit ones go back to their
+        sensor); with nothing ever remembered, every lamp at its last setting by hand.
+        Alarms are untouched (a sunrise running right now stops, like any manual off)."""
+        if action == "off":
+            await self._master_off()
+        elif action == "on":
+            await self._master_on()
+        else:
+            raise SettingsError(f"Unknown master action {action!r}")
+
+    async def _master_off(self) -> None:
+        memory = {}
+        for ieee, controller in self.registry.controllers.items():
+            state = controller.state
+            if state.on is True:
+                kelvin = mired_to_kelvin(state.mireds) if state.mireds else None
+                memory[ieee] = {
+                    "level": state.level or MAX_LEVEL,
+                    "kelvin": kelvin if controller.caps.supports_ct else None,
+                    "owner": self.behaviour.lamp(ieee).owner,
+                }
+        if memory:  # pressed with everything off: keep the old memory
+            self.state.master = memory
+            self.store.save_state(self.state)
+        LOGGER.info("Master off: remembering %s", list(memory) or "nothing new")
+        for ieee, controller in self.registry.controllers.items():
+            if controller.state.on is not False and controller.available:
+                await self.lamp_action(ieee, "off")  # fades out in the background
+
+    async def _master_on(self) -> None:
+        memory = self.state.master
+        if not memory:
+            memory = {ieee: {"owner": "manual"} for ieee in self.registry.light_ieees()}
+        LOGGER.info("Master on: restoring %s", list(memory))
+        jobs = []
+        for ieee, saved in memory.items():
+            if ieee not in self.registry.controllers:
+                continue  # removed since
+            if saved.get("owner") == "motion" and self.behaviour.rule_for_lamp(ieee):
+                jobs.append(self.lamp_action(ieee, "auto"))  # back to its sensor
+                continue
+            last = self.settings.light_settings(ieee).last_manual
+            if saved.get("level"):
+                last.level = max(MIN_LEVEL, min(MAX_LEVEL, int(saved["level"])))
+            if saved.get("kelvin"):
+                last.kelvin = max(1500, min(6500, int(saved["kelvin"])))
+            jobs.append(self.lamp_action(ieee, "on"))
+        self._save_settings()
+        results = await asyncio.gather(*jobs, return_exceptions=True)
+        failed = [r for r in results if isinstance(r, Exception)]
+        for error in failed:
+            LOGGER.warning("Master on: %r", error)
+        if failed:
+            raise LightError(f"{len(failed)} of {len(jobs)} lamps didn't respond")
+
+    def master_status(self) -> dict:
+        return {
+            "any_on": any(c.state.on is True for c in self.registry.controllers.values()),
+            "remembered": sorted(i for i in self.state.master if i in self.registry.controllers),
+        }
+
     def _remember_manual(self, ieee: str, action: str, value: int) -> None:
         """The last level and warmth set by hand (a remote's "on" will restore them)."""
         last = self.settings.light_settings(ieee).last_manual
@@ -1296,6 +1361,7 @@ class Service:
             "sensors": self.sensor_list(),
             "remotes": self.remote_list(),
             "weather": self.weather_status(),
+            "master": self.master_status(),
             "sunrise": run.status(now) if run else None,
             "upcoming": [
                 {

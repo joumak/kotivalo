@@ -124,3 +124,13 @@ test('shows the weather once a place is set', async ({ page, request }) => {
   await expect(page.getByText(/^Sää nyt: /)).toBeAttached()
   await expect(page.getByText(/^-?\d+°$/).first()).toBeVisible()
 })
+
+test('the master switch turns everything off and brings it back', async ({ page, request }) => {
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 150 } })
+  await open(page, '#/lights')
+  await page.getByRole('button', { name: 'Kaikki pois' }).click()
+  await expect.poll(async () => (await lamp(request)).state.on).toBe(false)
+  await page.getByRole('button', { name: 'Palauta valot' }).click()
+  await expect.poll(async () => (await lamp(request)).state.level).toBe(150)
+  await expect(page.getByRole('button', { name: 'Kaikki pois' })).toBeVisible()
+})

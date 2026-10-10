@@ -298,6 +298,9 @@ class State:
     skipped: list[str] = field(default_factory=list)  # alarm keys (UTC ISO) skipped or stopped
     last_run: dict[str, Any] | None = None
     behaviour: dict[str, Any] = field(default_factory=dict)  # owner per lamp (behaviour.py)
+    # The lamps lit at the last master-off: {ieee: {level, kelvin, owner}}. Kept until the
+    # next master-off, so the master switch always brings back "my usual lights".
+    master: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> State:

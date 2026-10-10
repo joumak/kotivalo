@@ -123,6 +123,11 @@ export const en = {
     save: 'Save',
     notConfigured: 'Setting up: move in front of the sensor to wake it.',
   },
+  master: {
+    allOff: 'All off',
+    restore: 'Restore lights',
+    allOn: 'All on',
+  },
   weather: {
     conditions: {
       clear: 'clear',

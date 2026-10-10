@@ -111,6 +111,12 @@ async def post_lamp(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def post_master(request: web.Request) -> web.Response:
+    body = await request.json()
+    await service_of(request).master_switch(str(body.get("action", "")))
+    return ok(request)
+
+
 async def post_lamp_refresh(request: web.Request) -> web.Response:
     await service_of(request).refresh_lamp(request.match_info["ieee"])
     return ok(request)
@@ -228,6 +234,7 @@ def make_web_app(service) -> web.Application:
     router.add_get("/api/events", events)
     router.add_post("/api/lights/{ieee}", post_lamp)
     router.add_post("/api/lights/{ieee}/refresh", post_lamp_refresh)
+    router.add_post("/api/master", post_master)
     router.add_put("/api/devices/{ieee}", put_device)
     router.add_delete("/api/devices/{ieee}", delete_device)
     router.add_put("/api/wakeup", put_wakeup)

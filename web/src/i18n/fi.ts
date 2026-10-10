@@ -117,6 +117,11 @@ export const fi: Messages = {
     save: 'Tallenna',
     notConfigured: 'Asetetaan: liiku tunnistimen edessä, niin se herää.',
   },
+  master: {
+    allOff: 'Kaikki pois',
+    restore: 'Palauta valot',
+    allOn: 'Kaikki päälle',
+  },
   weather: {
     conditions: {
       clear: 'selkeää',

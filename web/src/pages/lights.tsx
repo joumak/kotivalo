@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { MasterSwitch } from '@/components/master-switch'
 import { WeatherLine } from '@/components/weather-line'
 import { useT } from '@/i18n'
 import { glowStyle, isLit, lampStatus, motionMode } from '@/lib/lamp-state'
@@ -56,7 +57,7 @@ export function LightsPage() {
   if (wide) {
     return (
       <>
-        <PageTitle>{t.nav.lights}</PageTitle>
+        <PageTitle action={<MasterSwitch snapshot={snapshot} />}>{t.nav.lights}</PageTitle>
         <WeatherLine snapshot={snapshot} className="-mt-2 mb-6" />
         <div className="grid grid-cols-[1fr_minmax(18rem,24rem)] items-start gap-8">
           {grid}
@@ -75,7 +76,7 @@ export function LightsPage() {
   const close = () => setSelected(null)
   return (
     <>
-      <PageTitle>{t.nav.lights}</PageTitle>
+      <PageTitle action={<MasterSwitch snapshot={snapshot} />}>{t.nav.lights}</PageTitle>
       <WeatherLine snapshot={snapshot} className="-mt-2 mb-6" />
       {grid}
       {layout === 'short' ? (

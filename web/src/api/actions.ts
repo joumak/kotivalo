@@ -44,6 +44,7 @@ export function useActions() {
       stopSunrise: () => run(api.stopSunrise()),
       permit: (seconds: number) => run(api.permit(seconds)),
       weather: (place: Parameters<typeof api.weather>[0]) => run(api.weather(place)),
+      master: (action: 'on' | 'off') => run(api.master(action)),
     }
   }, [live, t])
 }

@@ -7,6 +7,7 @@ import { useLive } from '@/api/live'
 import type { Lamp, Snapshot } from '@/api/types'
 import { SunriseBand } from '@/components/sunrise-band'
 import { Button } from '@/components/ui/button'
+import { MasterSwitch } from '@/components/master-switch'
 import { WeatherLine } from '@/components/weather-line'
 import { useT } from '@/i18n'
 import { formatTime, levelPercent, percentToLevel, weekdayName } from '@/lib/format'
@@ -49,8 +50,11 @@ export function PanelDashboard({ onMenu }: { onMenu: () => void }) {
         style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
       >
         <ClockColumn snapshot={snapshot} now={now} onMenu={onMenu} night={night} />
-        <div className="min-h-0 overflow-y-auto">
-          <LampGrid snapshot={snapshot} />
+        <div className="flex min-h-0 flex-col gap-4">
+          <MasterSwitch snapshot={snapshot} size="lg" className="self-end" />
+          <div className="min-h-0 grow overflow-y-auto">
+            <LampGrid snapshot={snapshot} />
+          </div>
         </div>
       </div>
     </div>

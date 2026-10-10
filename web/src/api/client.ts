@@ -64,6 +64,7 @@ export const api = {
   testSunrise: (minutes: number) => request('POST', '/api/sunrise/test', { minutes }),
   stopSunrise: () => request('POST', '/api/sunrise/stop', {}),
   permit: (seconds: number) => request('POST', '/api/permit', { seconds }),
+  master: (action: 'on' | 'off') => request('POST', '/api/master', { action }),
   weather: (place: WeatherPlace | null) => request('PUT', '/api/weather', place ?? { lat: null, lon: null }),
   searchPlaces,
 }

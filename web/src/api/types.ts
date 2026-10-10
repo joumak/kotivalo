@@ -125,6 +125,11 @@ export interface Place extends WeatherPlace {
   country: string
 }
 
+export interface MasterStatus {
+  any_on: boolean
+  remembered: string[] // lamps lit at the last master-off; "on" brings them back
+}
+
 export interface Alarm {
   enabled: boolean
   time: string // HH:MM, local
@@ -193,6 +198,7 @@ export interface Snapshot {
   sensors: Sensor[]
   remotes: Remote[]
   weather: Weather
+  master: MasterStatus
   sunrise: SunriseRun | null
   upcoming: Upcoming[]
   last_run: RunRecord | null

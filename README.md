@@ -46,6 +46,20 @@ Every lamp has one owner at a time. The lamp's status line in the UI says which:
 
 **"On" restores the last brightness and warmth set by hand,** from the UI or a remote.
 
+## All lamps at once
+
+**Kaikki pois** ("All off") on the Lights page and the wall panel:
+- It switches every lamp off.
+- It remembers which lamps were lit, at what brightness and warmth, and who controlled them.
+
+**Palauta valot** ("Restore lights") brings that set back:
+- Lamps that were on by hand come back exactly as they were.
+- Lamps the motion sensor had lit go back to their sensor. They come on again only when it sees someone in a dark room.
+
+**The memory** is kept until the next "All off", so the button always restores your usual lights. Before the first "All off" it reads **Kaikki päälle** ("All on") and switches every lamp on at its last setting by hand.
+
+**Alarms are not affected:** the next sunrise starts as usual. A sunrise that is running right now stops, like any manual off.
+
 ## Motion lighting
 
 Set up per sensor under **Laitteet → (sensor) → settings**:

@@ -12,6 +12,8 @@ LOGGER = logging.getLogger(__name__)
 
 MIN_LEVEL = 2  # IKEA FLOALT turns off at level 1
 MAX_LEVEL = 254
+OFF_FADE_S = 1.2  # a switch-off first fades down this long
+PARK_PAUSE_S = 0.3  # IKEA runs one transition at a time: let each command land
 
 
 class LightError(Exception):
@@ -51,6 +53,10 @@ class Light(Protocol):
 
     async def stop(self) -> None:
         """Abort any running transition or move."""
+
+    async def fade(self, level: int, transition_s: float) -> None:
+        """Move a lit lamp to `level` over `transition_s`. Never switches a lamp on or off
+        (an off FLOALT ignores it)."""
 
     async def move(self, up: bool, rate: int) -> None:
         """Dim up or down at `rate` levels per second until stop() (a held remote button)."""
@@ -95,6 +101,11 @@ class FakeLight:
 
     async def stop(self) -> None:
         self._record("stop")
+
+    async def fade(self, level: int, transition_s: float) -> None:
+        self._record("fade", level, transition_s)
+        if self.state.on:
+            self.state.level = level
 
     async def move(self, up: bool, rate: int) -> None:
         self._record("move", up, rate)
@@ -204,20 +215,46 @@ class LightController:
         await self._run(light.on)
         self.state.on = True
 
-    async def off(self, park_mireds: int | None = None, park_level: int | None = None) -> None:
-        """Switch off, first 'parking' the lamp so its next switch-on starts there: warm
-        (park_mireds), and for the wake-up lamp also at minimum brightness (park_level),
-        so a sunrise or night light never starts with a flash of the old setting."""
-        light = self._require()
-        if self.state.on is not False:
-            if park_mireds is not None and self.caps.supports_ct:
-                await self.set_ct(park_mireds)
-                await asyncio.sleep(0.3)
-            if park_level is not None:
-                await self.set_level(park_level, 0)
-                await asyncio.sleep(0.3)
-        await self._run(light.off)
+    def switching_off(self) -> bool:
+        """Count the lamp as off from now, while a fade-out runs in the background (views
+        update at once). Returns whether it was lit: pass it on to off()."""
+        lit = self.state.on is not False
         self.state.on = False
+        return lit
+
+    async def off(
+        self,
+        park_mireds: int | None = None,
+        park_level: int | None = None,
+        fade_s: float = 0.0,
+        lit: bool | None = None,
+    ) -> None:
+        """Switch off, first 'parking' the lamp so its next switch-on starts there, and
+        a sunrise or night light never starts with a flash of the old setting:
+        1. fade down to park_level over fade_s;
+        2. set the warmth park_mireds at that dim level, where the change hardly shows
+           (warmth can't fade: a CT transition freezes a FLOALT);
+        3. off, with no transition (IKEA can stay on after a transitioned off)."""
+        light = self._require()
+        before = self.state.on
+        if lit is None:
+            lit = before is not False
+        self.state.on = False  # what we're doing; the fade doesn't change it
+        try:
+            if lit and park_level is not None:
+                level = max(MIN_LEVEL, min(MAX_LEVEL, park_level))
+                await self._run(lambda: light.fade(level, fade_s))
+                self.state.level = level
+                await asyncio.sleep(fade_s + PARK_PAUSE_S)
+            if lit and park_mireds is not None and self.caps.supports_ct:
+                mireds = self.caps.clamp_mireds(park_mireds)
+                await self._run(lambda: light.set_ct(mireds))
+                self.state.mireds = mireds
+                await asyncio.sleep(PARK_PAUSE_S)
+            await self._run(light.off)
+        except LightError:
+            self.state.on = None if lit else before  # lit or not: the next poll tells
+            raise
 
     async def stop(self) -> None:
         light = self._require()

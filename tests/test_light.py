@@ -80,3 +80,41 @@ async def test_a_cancelled_request_does_not_break_the_queue():
     await asyncio.wait_for(first, 1)
     await settle()
     assert sender.sent == [("level", 10), ("level", 20)]
+
+
+def lamp(state):
+    from kotivalo.light import FakeLight, LightCaps, LightController, LightState
+
+    fake = FakeLight(state=LightState(*state))
+    controller = LightController(fake, LightCaps("Fake panel", "Test", True))
+    controller.state = LightState(*state)  # as the last poll or report left it
+    return controller, fake
+
+
+async def test_off_fades_down_then_warms_then_switches_off():
+    controller, fake = lamp((True, 200, 300))
+    await controller.off(park_mireds=454, park_level=2, fade_s=0.05)
+    assert fake.commands() == [("fade", 2, 0.05), ("ct", 454), ("off",)]
+    assert (controller.state.on, controller.state.level, controller.state.mireds) == (False, 2, 454)
+
+
+async def test_an_off_lamp_is_only_told_off():
+    controller, fake = lamp((False, 2, 454))
+    await controller.off(park_mireds=454, park_level=2, fade_s=0.05)
+    assert fake.commands() == [("off",)]
+
+
+async def test_switching_off_shows_off_at_once_and_remembers_it_was_lit():
+    controller, fake = lamp((True, 200, 300))
+    lit = controller.switching_off()
+    assert lit is True and controller.state.on is False
+    await controller.off(park_mireds=454, park_level=2, fade_s=0, lit=lit)
+    assert fake.commands() == [("fade", 2, 0), ("ct", 454), ("off",)]
+
+
+async def test_a_failed_off_leaves_the_state_unknown():
+    controller, fake = lamp((True, 200, 300))
+    fake.fail = True
+    with pytest.raises(LightError):
+        await controller.off(park_mireds=454, park_level=2, fade_s=0)
+    assert controller.state.on is None  # the next poll tells

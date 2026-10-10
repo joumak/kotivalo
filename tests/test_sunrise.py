@@ -39,8 +39,8 @@ async def test_full_sunrise_command_sequence():
     cmds = light.commands()
 
     assert cmds[:2] == [("level", 2, 0), ("ct", 454)]  # on at the dimmest, then warm
-    # full at the alarm; then parked warm and dim before off, so tomorrow starts dark
-    assert cmds[-5:] == [("ct", 250), ("level", 254, 0), ("ct", 454), ("level", 2, 0), ("off",)]
+    # full at the alarm; then a fade-out to dim and warm before off, so tomorrow starts dark
+    assert cmds[-5:] == [("ct", 250), ("level", 254, 0), ("fade", 2, 1.2), ("ct", 454), ("off",)]
     levels = [c[1] for c in cmds if c[0] == "level"]
     assert min(levels) >= 2
     assert results == ["completed"]
@@ -96,17 +96,16 @@ async def test_resume_mid_ramp_starts_at_current_brightness():
 async def test_never_dims_a_light_that_is_already_bright():
     clock, light, manager, _ = setup(state=LightState(on=True, level=200, mireds=300))
     await run_to_end(manager, alarm_run())
-    levels = [c[1] for c in light.commands() if c[0] == "level"]
-    *ramp, park = levels  # the last one parks it dim just before switching off
+    ramp = [c[1] for c in light.commands() if c[0] == "level"]
     assert ramp[0] == 200
     assert min(ramp) >= 200
-    assert park == 2
+    assert ("fade", 2, 1.2) in light.commands()  # dims only in the fade-out before off
 
 
 async def test_restart_during_hold_only_switches_off_later():
     clock, light, manager, _ = setup(now=ALARM + timedelta(minutes=10))
     await run_to_end(manager, alarm_run())
-    assert light.commands() == [("ct", 454), ("level", 2, 0), ("off",)]
+    assert light.commands() == [("fade", 2, 1.2), ("ct", 454), ("off",)]
     assert clock.now() == OFF
 
 

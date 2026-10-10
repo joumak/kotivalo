@@ -17,7 +17,15 @@ from kotivalo import systemd
 from kotivalo.behaviour import Behaviour, SwitchOff, SwitchOn, night_now
 from kotivalo.clock import Clock, ntp_synchronized
 from kotivalo.events import Announce, Battery, Button, Event, LightReport, Lux, Motion, Seen
-from kotivalo.light import MAX_LEVEL, MIN_LEVEL, FakeLight, LatestWins, LightController, LightError
+from kotivalo.light import (
+    MAX_LEVEL,
+    MIN_LEVEL,
+    OFF_FADE_S,
+    FakeLight,
+    LatestWins,
+    LightController,
+    LightError,
+)
 from kotivalo.ramp import (
     KELVIN_STEP,
     Curve,
@@ -546,10 +554,12 @@ class Service:
             await controller.off(**self._park(ieee, controller))
 
     def _park(self, ieee: str, controller: LightController) -> dict:
-        """Before off: warm; the wake-up lamp also dim, so its next start never flashes."""
+        """Off fades out to warm and dim, so the next start (a sunrise, a night light)
+        never flashes with the old setting. "On" restores the last setting by hand."""
         return {
             "park_mireds": controller.caps.max_mireds if controller.caps.supports_ct else None,
-            "park_level": MIN_LEVEL if ieee == self.settings.wakeup.light else None,
+            "park_level": MIN_LEVEL,
+            "fade_s": OFF_FADE_S,
         }
 
     async def _behaviour_loop(self) -> None:
@@ -707,11 +717,17 @@ class Service:
             self._remember_manual(ieee, action, int(value))
             await self._live_sender(ieee).submit(action, int(value))
             return
+        if action == "off":  # fades out in the background; shown as off at once
+            lit = controller.switching_off()
+            self._spawn_logged(self._fade_off(ieee, lit), f"Switching off {ieee}")
+            return
         async with controller.lock:
-            if action == "on":
-                await self._manual_on(ieee, controller, full=in_sunrise)
-            else:
-                await controller.off(**self._park(ieee, controller))
+            await self._manual_on(ieee, controller, full=in_sunrise)
+
+    async def _fade_off(self, ieee: str, lit: bool) -> None:
+        controller = self.registry.controller(ieee)
+        async with controller.lock:
+            await controller.off(**self._park(ieee, controller), lit=lit)
 
     async def _manual_on(self, ieee: str, controller: LightController, full: bool) -> None:
         """On at the last level and warmth set by hand (a lamp parked at its minimum would

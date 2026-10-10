@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from kotivalo.clock import Clock
-from kotivalo.light import MAX_LEVEL, MIN_LEVEL, LightController, LightError
+from kotivalo.light import MAX_LEVEL, MIN_LEVEL, OFF_FADE_S, LightController, LightError
 from kotivalo.ramp import Curve, plan_ticks, progress
 
 LOGGER = logging.getLogger(__name__)
@@ -112,7 +112,9 @@ class SunriseManager:
                 if self.keep_on is None or not self.keep_on(run):
                     await self._send(
                         "off",
-                        lambda: self.controller.off(self.curve().warm_mired, park_level=MIN_LEVEL),
+                        lambda: self.controller.off(
+                            self.curve().warm_mired, park_level=MIN_LEVEL, fade_s=OFF_FADE_S
+                        ),
                     )
         except asyncio.CancelledError:
             result = f"cancelled: {self._cancel_reason}" if self._cancel_reason else "interrupted"

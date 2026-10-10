@@ -554,6 +554,13 @@ class ZigbeeLight:
     async def stop(self) -> None:
         await self._send("stop", lambda ep: ep.level.stop())
 
+    async def fade(self, level: int, transition_s: float) -> None:
+        tenths = max(0, round(transition_s * 10))
+        await self._send(
+            f"fade {level}",  # move_to_level without on/off: an off lamp stays off
+            lambda ep: ep.level.move_to_level(level=level, transition_time=tenths),
+        )
+
     async def move(self, up: bool, rate: int) -> None:
         """Dim until stop(). Up switches an off lamp on; down stops at the lowest level
         and never switches the lamp off."""

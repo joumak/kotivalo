@@ -88,7 +88,12 @@ Everything else:
 - **Lamp state** is what we commanded, corrected by reports (`LightController.apply_report`, ignored for 5 s after our own command: the echo guard) and by polling (every 60 s, backing off to 10 min while a lamp doesn't answer; unreachable is not off). `xbee_config.py` uses raw serial frames, stdlib only.
 - **`app.py` (`Service`)** wires everything together. `web.py` is a thin JSON API.
   - Per-lamp level/warmth go through `LatestWins` (`light.py`), so a dragged slider never queues behind the radio.
-  - "On" (UI or remote) restores the lamp's last manual level and warmth (`_manual_on`): the wake-up lamp is parked at minimum level when switched off. During a sunrise "on" means full brightness.
+  - **Off fades out** (`LightController.off`):
+    1. `fade` (Level `move_to_level` *without* on/off, so an off lamp ignores it) to minimum over `OFF_FADE_S`
+    2. CT warm, instantly, at that dim level
+    3. plain off
+    - A UI or remote off counts as off at once (`switching_off`) and fades in the background.
+  - "On" (UI or remote) restores the lamp's last manual level and warmth (`_manual_on`), since every lamp is parked at minimum. During a sunrise "on" means full brightness.
   - Remote hold-to-dim uses the lamp's native `move`/`stop`, then reads the level back; arrows step 40 mired, repeating while held.
   - `GET /api/events` (SSE) pushes the full state on every change: call `service.notify()` after anything that changes state (web writes do it in the `guard` middleware).
 - **`web/`:** the React UI (TypeScript, Vite, Tailwind v4, shadcn/ui on Radix), built into `src/kotivalo/static/` (gitignored; `deploy.sh` builds it).

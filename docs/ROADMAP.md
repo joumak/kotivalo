@@ -52,7 +52,7 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 
 - **The service hung at startup with no Zigbee router powered.** `TolerantPermit`, the database close on failure, and the systemd watchdog fixed it (`9263e24`).
 - **The UI showed only the last commanded state.** Lamps now report on/off, level and warmth; polling and Device_annce catch the rest.
-- **The wake-up lamp flashed at the next start.** It is now parked at warm and minimum level before switching off, and "on" restores the last manual setting. Some visible steps remain (see feature 5).
+- **The wake-up lamp flashed at the next start.** Every off now fades out to warm and minimum before switching off, and "on" restores the last manual setting. A brief warm moment at "on" remains (see feature 5).
 
 ---
 
@@ -101,7 +101,7 @@ The code talks to zigpy's generic API, so swapping is a settings change plus re-
 ### 5. Flash-free switch-on: not possible on this firmware
 
 **Today:**
-- Before the wake-up lamp switches off, it is parked at warm and minimum brightness. That shows as a brief dim-down.
+- Every off fades out over about 1.2 s to minimum, then turns warm at that dim level, then switches off (since 2026-10-10; before, it jumped to warm and dim).
 - "On" sets the remembered brightness, then the warmth 0.5 s later. That shows as a brief warm moment.
 
 **Tested on panel 2 (firmware 1.2.217) on 2026-10-10, with the lamp off:**

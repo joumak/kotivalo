@@ -168,3 +168,18 @@ async def test_let_motion_control_needs_a_sensor(setup):
     service, client, clock = setup
     other = "00:00:00:00:00:00:00:01"
     assert (await client.post(f"/api/lights/{other}", json={"action": "auto"})).status == 400
+
+
+async def test_off_from_the_app_answers_at_once_and_fades_out_after(setup, monkeypatch):
+    from kotivalo import app
+
+    service, client, clock = setup
+    monkeypatch.setattr(app, "OFF_FADE_S", 0.4)
+    await client.post(f"/api/lights/{LAMP}", json={"action": "level", "value": 200})
+    await settle(service)
+    response = await client.post(f"/api/lights/{LAMP}", json={"action": "off"})
+    lamp = next(x for x in (await response.json())["lights"] if x["ieee"] == LAMP)
+    assert lamp["state"]["on"] is False  # shown off at once
+    assert ("off",) not in commands(service)  # while the fade is still running
+    await asyncio.sleep(0.6)
+    assert commands(service)[-3:] == [("fade", 2, 0.4), ("ct", 454), ("off",)]

@@ -80,3 +80,40 @@ async def test_a_silent_lamp_is_unreachable_and_polled_less_often(service):
 
 def test_poll_backoff():
     assert [poll_delay(n) for n in range(6)] == [60, 120, 240, 480, 600, 600]
+
+
+async def test_failed_setup_of_a_sleepy_device_is_retried_rarely(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from kotivalo import zigbee
+    from kotivalo.clock import FakeClock
+    from kotivalo.events import Seen
+
+    clock = FakeClock(datetime(2026, 10, 12, 12, 0, tzinfo=UTC))
+    service = Service(Store(tmp_path), fake=True, fake_sensors=1, clock=clock)
+    await service.start()
+    attempts = []
+
+    async def fails(device):
+        attempts.append(device)
+        return False
+
+    class Radio:
+        def get_device(self, ieee):
+            return ieee
+
+    monkeypatch.setattr(zigbee, "configure_sensor", fails)
+    service.zigbee = Radio()
+    sensor = "00:00:00:00:00:00:00:f1"
+    try:
+        for _ in range(3):
+            service.events.put_nowait(Seen(sensor))
+            await settle()
+        assert len(attempts) == 1
+        clock.advance(app_module.CONFIGURE_RETRY_S + 1)
+        service.events.put_nowait(Seen(sensor))
+        await settle()
+        assert len(attempts) == 2
+    finally:
+        service.zigbee = None
+        await service.stop()

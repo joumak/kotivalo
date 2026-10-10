@@ -65,6 +65,7 @@ STEP_LEVELS = 51  # one tap of a remote's up/down: 20 %
 WARMTH_STEP_MIREDS = 40  # one arrow tap
 WARMTH_REPEAT_S = 0.4  # while an arrow is held
 HOLD_LIMIT_S = 10  # a held arrow whose release never arrived stops by itself
+CONFIGURE_RETRY_S = 300  # a sleepy device that failed setup is retried at most this often
 
 
 def poll_delay(failures: int) -> float:
@@ -140,6 +141,7 @@ class Service:
         self.events: asyncio.Queue[Event] = asyncio.Queue()
         self._behaviour_changed = asyncio.Event()
         self._configuring: set[str] = set()
+        self._configure_tried: dict[str, datetime] = {}
         self.remote_memo: dict[str, dict] = {}  # battery and last press, until a restart
         self._repeats: dict[str, asyncio.Task] = {}  # held arrows, per remote
         self.firmware: dict[str, dict] = {}  # firmware updates: state and progress
@@ -379,10 +381,17 @@ class Service:
         device = self.settings.devices.get(ieee)
         return device is not None and device.kind in ("motion", "remote")
 
-    def _configure_soon(self, ieee: str) -> None:
-        """Configure a sleepy device while it is awake (it just sent something)."""
+    def _configure_soon(self, ieee: str, retry: bool = False) -> None:
+        """Configure a sleepy device while it is awake (it just joined or sent something).
+        A retry waits a while after a failed attempt: each one queues requests that wait
+        30 s for an answer, and a flaky device would keep the XStick busy."""
         if ieee in self._configuring or self.zigbee is None:
             return
+        now = self.clock.now()
+        tried = self._configure_tried.get(ieee)
+        if retry and tried is not None and (now - tried).total_seconds() < CONFIGURE_RETRY_S:
+            return
+        self._configure_tried[ieee] = now
         self._configuring.add(ieee)
 
         async def run():
@@ -443,7 +452,7 @@ class Service:
                 self._remote_pressed(event.ieee, action)
             case Seen():
                 if self._sleepy(event.ieee) and not self.settings.devices[event.ieee].configured:
-                    self._configure_soon(event.ieee)
+                    self._configure_soon(event.ieee, retry=True)
 
     def _kind(self, ieee: str) -> str | None:
         device = self.settings.devices.get(ieee)

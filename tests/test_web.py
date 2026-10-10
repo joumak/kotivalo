@@ -126,6 +126,13 @@ async def test_changing_the_wakeup_lamp_stops_its_running_sunrise(client):
     assert state["wakeup"]["light"] == LAMP_2
     assert client.service.controller is client.service.registry.controller(LAMP_2)
     assert ("stop",) in client.service.registry.controller(LAMP_1).light.commands()
+    # Saved straight away: the wake-up lamp stays off after a power cut, the other comes on.
+    saved = client.service.store.load_settings()
+    assert saved.wakeup.light is None  # fake lamps are never saved...
+    assert {x["ieee"]: x["power_on"] for x in state["lights"]} == {
+        LAMP_1: "on",
+        LAMP_2: "previous",
+    }
 
 
 async def test_rename_and_remove_devices(client):

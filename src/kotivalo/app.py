@@ -271,14 +271,20 @@ class Service:
             async with controller.lock:
                 await controller.refresh()
 
-    async def _apply_power_on(self, ieee: str) -> None:
+    def _set_power_on_policy(self, ieee: str) -> bool:
         """The wake-up lamp keeps its state over a power cut (a night-time cut must not
-        wake you); other lamps switch on, so their wall switch works."""
+        wake you); other lamps switch on, so their wall switch works. Settings only;
+        returns True for "previous"."""
         light_settings = self.settings.light_settings(ieee)
         light_settings.power_on = "previous" if ieee == self.settings.wakeup.light else "on"
+        return light_settings.power_on == "previous"
+
+    async def _apply_power_on(self, ieee: str) -> None:
+        """Set the policy in the settings (caller saves) and write it to the lamp."""
+        previous = self._set_power_on_policy(ieee)
         light = self.registry.controller(ieee).light
         if hasattr(light, "set_power_on"):
-            await light.set_power_on(previous=light_settings.power_on == "previous")
+            await light.set_power_on(previous=previous)
 
     async def _finished(self, run: Run, result: str) -> None:
         if result == "interrupted":
@@ -404,13 +410,15 @@ class Service:
             return
         await self.stop_sunrise("wake-up lamp changed")
         self.settings.wakeup.light = ieee
+        lamps = [x for x in (ieee, previous) if x is not None and x in self.registry.controllers]
+        for lamp in lamps:
+            self._set_power_on_policy(lamp)
         self._save_settings()
         self._attach_wakeup()
         self.scheduler.poke()
-        for lamp in (ieee, previous):
-            if lamp is not None and lamp in self.registry.controllers:
-                self._spawn_logged(self._apply_power_on(lamp), f"Power-on setting for {lamp}")
-        self._save_settings()
+        # Writing to the lamps can take seconds (or fail for an unreachable lamp).
+        for lamp in lamps:
+            self._spawn_logged(self._apply_power_on(lamp), f"Power-on setting for {lamp}")
 
     async def select_light(self, ieee: str) -> None:
         """Version 1 API: choose the wake-up lamp."""

@@ -161,7 +161,7 @@ On a tablet mounted on a wall or by the bed, open the UI and switch on **Asetuks
 
 - The panel shows a large clock, the weather, the next alarm (with skip) and the lamps.
 - **Tap** a lamp tile to switch it. **Press and drag** up or down to set its brightness.
-- **At night** the screen is almost black with a dim amber clock, which drifts a little to prevent burn-in. The first touch only wakes the screen, so it never switches a lamp by accident.
+- **At night** the screen is almost black with a dim amber clock, the next alarm and the weather, all drifting a little to prevent burn-in. The first touch only wakes the screen, so it never switches a lamp by accident.
 - The menu button opens the full app. After 3 minutes untouched, the panel returns to its dashboard.
 
 **Keeping the screen on:** browsers allow the Wake Lock API only over HTTPS, so use the tablet's own settings:

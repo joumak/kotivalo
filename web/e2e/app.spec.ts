@@ -78,9 +78,11 @@ test('wall panel at night: the first touch only wakes the screen', async ({ page
   await request.put('/api/night', {
     data: { start: hhmm(new Date(now - 3600e3)), end: hhmm(new Date(now + 3600e3)) },
   })
+  await request.put('/api/weather', { data: { name: 'Helsinki', lat: 60.17, lon: 24.94 } })
   await open(page, '', { 'kotivalo-panel': '1' })
   const wake = page.getByRole('button', { name: 'Näytä valot napauttamalla' })
   await expect(wake).toBeVisible()
+  await expect(wake.getByText(/^Sää nyt: /)).toBeAttached() // the weather, dimmed, at night too
   await wake.click()
   await expect(page.getByRole('button', { name: /^Lukuvalo/ })).toBeVisible()
   for (const l of (await state(request)).lights) expect(l.state.on).toBe(false) // nothing switched

@@ -84,7 +84,7 @@ function ClockColumn({ snapshot, now, onMenu, night }: { snapshot: Snapshot; now
             {clock}
           </p>
           <p className="mt-3 text-[clamp(1.25rem,2.6vw,2rem)] text-muted-foreground first-letter:uppercase">{date}</p>
-          <WeatherLine snapshot={snapshot} size="panel" className="mt-4" />
+          <WeatherLine snapshot={snapshot} variant="panel" className="mt-4" />
         </div>
         <Button size="icon-lg" variant="ghost" aria-label={t.panel.menu} onClick={onMenu}>
           <Menu className="size-6" />
@@ -270,6 +270,9 @@ function NightScreen({ snapshot, now, onWake }: { snapshot: Snapshot; now: Date;
             {formatTime(next.alarm, t.locale, snapshot.timezone)}
           </p>
         )}
+        <div className="mt-3" style={{ color: 'rgb(255 147 44 / 0.28)' }}>
+          <WeatherLine snapshot={snapshot} variant="night" />
+        </div>
       </div>
     </button>
   )

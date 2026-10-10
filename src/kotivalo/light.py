@@ -12,8 +12,9 @@ LOGGER = logging.getLogger(__name__)
 
 MIN_LEVEL = 2  # IKEA FLOALT turns off at level 1
 MAX_LEVEL = 254
-OFF_FADE_S = 1.2  # a switch-off first fades down this long
-PARK_PAUSE_S = 0.3  # IKEA runs one transition at a time: let each command land
+OFF_FADE_S = 0.8  # a switch-off first fades down this long
+FADE_SETTLE_S = 0.15  # after a fade, before the next command (which would cut it short)
+WARM_TO_OFF_S = 0.05  # the lamp has acked the warmth: off right after, so the step hardly shows
 
 
 class LightError(Exception):
@@ -245,12 +246,12 @@ class LightController:
                 level = max(MIN_LEVEL, min(MAX_LEVEL, park_level))
                 await self._run(lambda: light.fade(level, fade_s))
                 self.state.level = level
-                await asyncio.sleep(fade_s + PARK_PAUSE_S)
+                await asyncio.sleep(fade_s + FADE_SETTLE_S)
             if lit and park_mireds is not None and self.caps.supports_ct:
                 mireds = self.caps.clamp_mireds(park_mireds)
                 await self._run(lambda: light.set_ct(mireds))
                 self.state.mireds = mireds
-                await asyncio.sleep(PARK_PAUSE_S)
+                await asyncio.sleep(WARM_TO_OFF_S)
             await self._run(light.off)
         except LightError:
             self.state.on = None if lit else before  # lit or not: the next poll tells

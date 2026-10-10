@@ -95,7 +95,7 @@ Choose the wake-up lamp under Laitteet (the sunrise icon), and the alarm days an
 - **Times:** alarms are local wall-clock times (Europe/Helsinki). Ramp windows are computed in UTC, so a fade across a DST change still lasts its full length.
 
 **No flash at the next start:**
-- **Every switch-off from the Pi fades out:** the app, a remote, motion, or the end of a sunrise. The lamp dims smoothly to minimum (about 1.2 s), turns warm at that dim level, and switches off. A sunrise or night light then never starts with a flash of the old setting, and "on" restores the brightness and warmth you last set by hand.
+- **Every switch-off from the Pi fades out:** the app, a remote, motion, or the end of a sunrise. The lamp dims smoothly to minimum (about 0.8 s), turns warm at that dim level, and switches off. A sunrise or night light then never starts with a flash of the old setting, and "on" restores the brightness and warmth you last set by hand.
 - After a power cut the wake-up lamp returns to its previous state, so a power cut at night doesn't wake you. Other lamps come on, so their wall switches work.
 
 **Reliability:**

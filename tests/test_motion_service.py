@@ -182,4 +182,16 @@ async def test_off_from_the_app_answers_at_once_and_fades_out_after(setup, monke
     assert lamp["state"]["on"] is False  # shown off at once
     assert ("off",) not in commands(service)  # while the fade is still running
     await asyncio.sleep(0.6)
-    assert commands(service)[-3:] == [("fade", 2, 0.4), ("ct", 454), ("off",)]
+    assert commands(service)[-2:] == [("fade", 2, 0.4), ("off",)]  # keeps its warmth
+
+
+async def test_only_the_wake_up_lamp_turns_warm_before_off(setup):
+    service, client, clock = setup
+    wakeup = service.settings.wakeup.light
+    assert wakeup is not None and wakeup != LAMP
+    await client.post(f"/api/lights/{wakeup}", json={"action": "level", "value": 200})
+    await client.post(f"/api/lights/{wakeup}", json={"action": "kelvin", "value": 4000})
+    await client.post(f"/api/lights/{wakeup}", json={"action": "off"})
+    await settle(service)
+    fake = service.registry.controller(wakeup).light
+    assert fake.commands()[-3:] == [("fade", 2, 0.0), ("ct", 454), ("off",)]

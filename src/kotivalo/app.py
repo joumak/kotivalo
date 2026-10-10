@@ -554,10 +554,14 @@ class Service:
             await controller.off(**self._park(ieee, controller))
 
     def _park(self, ieee: str, controller: LightController) -> dict:
-        """Off fades out to warm and dim, so the next start (a sunrise, a night light)
-        never flashes with the old setting. "On" restores the last setting by hand."""
+        """Off fades out to dim. The wake-up lamp also turns warm, so its next start (a
+        sunrise, a night light) never flashes cool; other lamps keep their warmth, as
+        "on" restores the last setting by hand anyway."""
+        wakeup = ieee == self.settings.wakeup.light
         return {
-            "park_mireds": controller.caps.max_mireds if controller.caps.supports_ct else None,
+            "park_mireds": controller.caps.max_mireds
+            if wakeup and controller.caps.supports_ct
+            else None,
             "park_level": MIN_LEVEL,
             "fade_s": OFF_FADE_S,
         }

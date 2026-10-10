@@ -90,7 +90,7 @@ Everything else:
   - Per-lamp level/warmth go through `LatestWins` (`light.py`), so a dragged slider never queues behind the radio.
   - **Off fades out** (`LightController.off`):
     1. `fade` (Level `move_to_level` *without* on/off, so an off lamp ignores it) to minimum over `OFF_FADE_S`
-    2. CT warm, instantly, at that dim level
+    2. the wake-up lamp only: CT warm, instantly, at that dim level (others keep their warmth)
     3. plain off
     - A UI or remote off counts as off at once (`switching_off`) and fades in the background.
   - "On" (UI or remote) restores the lamp's last manual level and warmth (`_manual_on`), since every lamp is parked at minimum. During a sunrise "on" means full brightness.

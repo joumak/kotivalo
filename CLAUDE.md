@@ -41,6 +41,9 @@ CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `
 - **Use `asyncio.timeout`, never `asyncio.wait_for`.** On Python 3.11, `wait_for` can swallow a cancellation, which once made the service shutdown hang.
 - **Shutdown must never hang.** Keep background-task waits bounded.
 - **The service must exit (not hang) on startup errors,** so that systemd restarts it.
+  - On failure, zigpy closes the radio but not its database thread. `start_app()` therefore always calls `app.shutdown()`.
+  - The unit is `Type=notify`. It sends `READY=1` once the radio and web UI are up, and `WatchdogSec=60` is pinged from the event loop by `systemd.py`.
+- **Startup must not depend on the lamp being powered.** Permit-join broadcasts may be unrelayed (`TolerantPermit`).
 
 ## Code map
 

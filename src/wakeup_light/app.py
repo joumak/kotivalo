@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from aiohttp import web
 
+from wakeup_light import systemd
 from wakeup_light.clock import Clock, ntp_synchronized
 from wakeup_light.light import FakeLight, LightCaps, LightController, LightError
 from wakeup_light.ramp import (
@@ -90,6 +91,18 @@ class Service:
                 LOGGER.warning("Background task did not stop: %r", task)
         if self.zigbee is not None:
             await self.zigbee.shutdown()
+
+    def start_watchdog(self) -> None:
+        """Ping systemd's watchdog while the event loop runs. If the loop blocks, or the
+        process hangs on its way out, systemd kills and restarts it."""
+        interval = systemd.watchdog_interval()
+        if interval:
+            self._spawn(self._watchdog(interval))
+
+    async def _watchdog(self, interval: float) -> None:
+        while True:
+            systemd.notify("WATCHDOG=1")
+            await asyncio.sleep(interval)
 
     def request_stop(self, exit_code: int = 0) -> None:
         self.exit_code = exit_code
@@ -318,33 +331,37 @@ class Service:
 
 
 async def serve(store: Store, *, host: str, port: int, fake: bool = False) -> int:
+    """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
+    systemd can restart us: a process that hangs after an error never gets restarted."""
     from wakeup_light.web import make_web_app
+    from wakeup_light.zigbee import NetworkNotFormedError, RadioError
 
     service = Service(store, fake=fake)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, service.request_stop)
 
+    runner = web.AppRunner(make_web_app(service), access_log=None)
     try:
         await service.start()
+        await runner.setup()
+        await web.TCPSite(runner, host, port).start()
     except Exception as exc:
-        from wakeup_light.zigbee import NetworkNotFormedError, RadioError
-
-        if isinstance(exc, NetworkNotFormedError):
-            LOGGER.error("%s", exc)
-            return EXIT_CONFIG
         if isinstance(exc, RadioError):
             LOGGER.error("%s", exc)
-            return 1
-        raise
+        else:
+            LOGGER.exception("Startup failed")
+        await runner.cleanup()
+        await service.stop()
+        return EXIT_CONFIG if isinstance(exc, NetworkNotFormedError) else 1
 
-    runner = web.AppRunner(make_web_app(service), access_log=None)
-    await runner.setup()
-    await web.TCPSite(runner, host, port).start()
+    systemd.notify("READY=1")
+    service.start_watchdog()
     LOGGER.info("Web UI on http://%s:%d (%s)", host, port, "fake light" if fake else "zigbee")
     try:
         await service.stopped.wait()
     finally:
+        systemd.notify("STOPPING=1")
         await runner.cleanup()
         await service.stop()
     return service.exit_code

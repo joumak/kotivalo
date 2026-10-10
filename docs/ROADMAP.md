@@ -13,25 +13,23 @@
 
 ## Known issues (fix first)
 
-### 1. Service hangs if no Zigbee router is powered at startup
+### 1. ~~Service hangs if no Zigbee router is powered at startup~~ (fixed 2026-10-10)
 
-**Seen on 2026-10-10:** after a reboot the service printed a traceback but never exited. The UI was down and systemd didn't restart it (`NRestarts=0`). Restarting by hand fixed it.
+**What happened:** after a reboot the service printed a traceback but never exited, so systemd never restarted it.
 
-**Cause:**
-1. During startup, zigpy's `initialize()` calls `permit(0)`.
-2. `permit(0)` broadcasts a "close joining" request. The XStick returned `DeliveryError: TXStatus.BROADCAST_RELAY_FAILURE` because no router (the FLOALT) was powered to relay it.
-3. zigpy tolerates only `MAC_CHANNEL_ACCESS_FAILURE` there, so `startup()` raised.
-4. `start_app()` doesn't catch `DeliveryError`. In addition, zigpy's startup failure path closes the radio but **not the database**. The DB worker thread kept the process alive after the traceback.
+**Causes:**
+- zigpy's startup `permit(0)` broadcast fails with `BROADCAST_RELAY_FAILURE` when no router is powered to relay it.
+- After the failure, zigpy closes the radio but not its database. The database thread kept the process alive.
 
-**Impact:** after a night-time power cut the Pi can boot before the lamp has power. The alarm then never runs.
+**Fixes:**
+- `TolerantPermit` (in `zigbee.py`) logs the unrelayed broadcast and still opens the coordinator.
+- `start_app()` closes the database on any startup failure.
+- `serve()` turns every startup error into an exit code.
+- The unit is `Type=notify` with a 60 s watchdog, as a backstop for any future hang.
 
-**Fix plan:**
-1. **Tolerate an unrelayed broadcast.** Subclass the radio's `ControllerApplication` and override `permit()`. When the broadcast fails with `DeliveryError`, log a warning and still call `permit_ncp(time_s)`. This also lets pairing straight to the stick work when nothing else is powered.
-2. **Shut down cleanly on startup failure.** In `start_app()`, create the app with `start_radio=False`, then call `startup()`. On *any* exception call `app.shutdown()` (closes the DB) and raise `RadioError`. `serve()` must turn every startup exception into a non-zero exit.
-3. **Backstop for hangs.** Use systemd `Type=notify` with `WatchdogSec=`, sending `sd_notify` READY and a watchdog ping from the event loop. Then any hang gets restarted.
-4. **Tests:**
-   - a fake app whose broadcast raises → the service still starts
-   - a startup exception → `serve()` returns 1 and leaves no non-daemon threads behind
+**Verified:**
+- with real zigpy, both on the laptop and on the Pi: the old code hangs, the new code exits
+- by `tests/test_startup.py`
 
 ### 2. The UI shows the last *commanded* state
 
@@ -133,7 +131,6 @@ Once the project is general home lighting, rename the repo, package (`wakeup_lig
 
 ## Hardening (later)
 
-- **Systemd watchdog:** see known issue 1, step 3.
 - **Back up the Zigbee network.** Keep a copy of `zigbee.db` (it holds zigpy's network backups, including the network key) and `settings.json` off the Pi. Otherwise a dead SD card means re-pairing every light and remote.
 - **Read-only root filesystem (overlay FS):** protects the SD card from power cuts once the setup is stable.
 - **Optional web token** (`web_token` in `settings.json`): enable it if the LAN isn't trusted.

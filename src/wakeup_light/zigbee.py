@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fcntl
+import functools
 import importlib
 import logging
 from collections.abc import Callable, Iterator
@@ -66,6 +67,26 @@ def zigpy_config(radio: RadioSettings, db_path: Path) -> dict[str, Any]:
     }
 
 
+class TolerantPermit:
+    """Mixin: permit-join works even when no router relays the broadcast.
+
+    zigpy broadcasts Mgmt_Permit_Joining_req to all routers before opening the
+    coordinator itself, and startup (which calls permit(0)) only tolerates
+    MAC_CHANNEL_ACCESS_FAILURE. With every router unpowered (lamp switched off at
+    the wall) the XBee reports BROADCAST_RELAY_FAILURE, and startup failed.
+    """
+
+    async def permit(self, time_s: int = 60, node=None) -> None:
+        if node is not None:
+            return await super().permit(time_s, node)
+        try:
+            await super().permit(time_s)
+        except zigpy.exceptions.DeliveryError as exc:
+            LOGGER.warning("Permit-join broadcast not relayed (no powered routers?): %s", exc)
+            await self.permit_ncp(time_s)
+
+
+@functools.cache
 def controller_class(radio_type: str) -> type[zigpy.application.ControllerApplication]:
     try:
         module = importlib.import_module(RADIO_MODULES[radio_type])
@@ -73,7 +94,8 @@ def controller_class(radio_type: str) -> type[zigpy.application.ControllerApplic
         raise RadioError(
             f"Radio library for {radio_type!r} is not installed (pip install -e '.[{radio_type}]')"
         ) from exc
-    return module.ControllerApplication
+    base = module.ControllerApplication
+    return type(f"Tolerant{base.__name__}", (TolerantPermit, base), {})
 
 
 async def start_app(
@@ -85,18 +107,23 @@ async def start_app(
     every network write costs EM250 flash cycles and forces a re-pair.
     """
     cls = controller_class(radio.type)
+    app = await cls.new(zigpy_config(radio, db_path), start_radio=False)
+    if not start_radio:
+        return app
     try:
-        return await cls.new(
-            zigpy_config(radio, db_path),
-            auto_form=radio.type != "xbee",
-            start_radio=start_radio,
-        )
-    except zigpy.exceptions.NetworkNotFormed as exc:
-        raise NetworkNotFormedError(
-            "The radio has no Zigbee network yet. Run: wakeup-light form-network"
-        ) from exc
-    except (OSError, TimeoutError, zigpy.exceptions.RadioException) as exc:
-        raise RadioError(f"Cannot start the radio on {radio.path}: {exc!r}") from exc
+        await app.startup(auto_form=radio.type != "xbee")
+    except BaseException as exc:
+        # zigpy's failed startup closes the radio but not the database, whose
+        # worker thread would keep the process alive after the error.
+        await app.shutdown()
+        if isinstance(exc, zigpy.exceptions.NetworkNotFormed):
+            raise NetworkNotFormedError(
+                "The radio has no Zigbee network yet. Run: wakeup-light form-network"
+            ) from exc
+        if isinstance(exc, Exception):
+            raise RadioError(f"Cannot start the radio on {radio.path}: {exc!r}") from exc
+        raise
+    return app
 
 
 def is_coordinator(device: zigpy.device.Device) -> bool:

@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -238,7 +239,11 @@ async def _light(args, store: Store) -> None:
 def cmd_serve(args, store: Store) -> None:
     from wakeup_light.app import serve
 
-    sys.exit(asyncio.run(serve(store, host=args.host, port=args.port, fake=args.fake)))
+    code = asyncio.run(serve(store, host=args.host, port=args.port, fake=args.fake))
+    leftover = [t.name for t in threading.enumerate() if t is not threading.main_thread()]
+    if leftover:  # diagnostics: these could keep the process from exiting
+        logging.getLogger(__name__).warning("Threads still running at exit: %s", leftover)
+    sys.exit(code)
 
 
 def main(argv: list[str] | None = None) -> None:

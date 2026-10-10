@@ -4,6 +4,12 @@ Wants=network-online.target
 After=network-online.target time-sync.target
 
 [Service]
+# The service reports READY once the radio and web UI are up, then pings the watchdog;
+# a hang (even on the way out after an error) makes systemd kill and restart it.
+Type=notify
+NotifyAccess=main
+WatchdogSec=60
+TimeoutStartSec=90
 User=pi
 Group=pi
 SupplementaryGroups=dialout

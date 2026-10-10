@@ -38,7 +38,11 @@ Planned work and known issues: [docs/ROADMAP.md](docs/ROADMAP.md). Notes for wor
 - **Manual control stops a running sunrise.** Any light control in the UI stops the sunrise and skips that alarm; the scheduler won't restart it.
 - **The ramp never dims a light that is already brighter.**
 - **Restarts resume.** A restart or reboot mid-sunrise resumes at the right point, from the wall clock.
-- **Radio failures restart the service.** If the radio stops answering, the service exits and systemd restarts it.
+- **Failures restart the service.**
+  - If the radio stops answering, the service exits and systemd restarts it.
+  - A failed startup always exits, and systemd retries every 10 s.
+  - The unit uses a 60 s watchdog, so even a hung process gets restarted.
+- **Starts without a powered light.** If the lamp is switched off at the wall during startup, the service still starts. The light is controllable once it has power again.
 
 ## Layout
 

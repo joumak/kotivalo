@@ -166,6 +166,27 @@ class Behaviour:
             else:
                 lamp.suppressed_until = now + timedelta(minutes=rule.off_after_min)
 
+    def automatic(self, ieee: str, lamp_on: bool, now: datetime, night: bool) -> list[Action]:
+        """Hand the lamp back to its motion sensor ("let motion control it"): clears a
+        manual setting or a pause. An occupied, dark room switches an off lamp on now."""
+        rule = self.rule_for_lamp(ieee)
+        lamp = self.lamp(ieee)
+        if rule is None or lamp.owner == "sunrise":
+            return []
+        lamp.suppressed, lamp.suppressed_until, lamp.before_sunrise = False, None, None
+        memo = self.sensor(rule.sensor)
+        after = timedelta(minutes=rule.off_after_min)
+        if lamp_on:
+            lamp.owner, lamp.profile = "motion", lamp.profile or ("night" if night else "day")
+            lamp.off_at = None if memo.occupied else now + after
+            return []
+        lamp.owner, lamp.off_at, lamp.profile = "off", None, None
+        if memo.occupied and (night or self._dark(rule, memo)):
+            profile = rule.night if night else rule.day
+            lamp.owner, lamp.profile = "motion", "night" if night else "day"
+            return [SwitchOn(ieee, profile.level, profile.kelvin)]
+        return []
+
     def lamp_state(self, ieee: str, on: bool, now: datetime) -> None:
         """The lamp was seen on or off (a report or a poll), e.g. its wall switch."""
         lamp = self.lamp(ieee)

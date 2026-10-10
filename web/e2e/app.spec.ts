@@ -88,3 +88,14 @@ test('sets up motion lighting for a lamp', async ({ page, request }) => {
   await expect.poll(async () => (await state(request)).sensors[0].rule?.lights).toEqual([LAMP])
   await expect(page.getByRole('dialog')).toBeHidden()
 })
+
+test('gives a lamp switched on by hand back to its motion sensor', async ({ page, request }) => {
+  await request.put(`/api/motion/${SENSOR}`, { data: { lights: [LAMP] } })
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'on' } })
+  await open(page, '#/lights')
+  await page.getByRole('button', { name: 'Lukuvalo', exact: true }).click()
+  await expect(page.getByText('Sytytetty käsin, liiketunnistin ei ohjaa')).toBeVisible()
+  await page.getByRole('button', { name: 'Palauta liikeohjaus' }).click()
+  await expect(page.getByText('Liiketunnistin ohjaa tätä valoa')).toBeVisible()
+  expect((await lamp(request)).owner).toBe('motion')
+})

@@ -4,7 +4,7 @@ import type { Lamp, Snapshot } from '@/api/types'
 import { en } from '@/i18n/en'
 import { fi } from '@/i18n/fi'
 
-import { lampStatus } from '@/lib/lamp-state'
+import { lampStatus, motionMode } from '@/lib/lamp-state'
 
 const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp => ({
   ieee: 'aa',
@@ -67,5 +67,14 @@ describe('lamps with a motion sensor', () => {
     expect(lampStatus(manual, snapshot(), fi)).toBe('Käsin päällä, 100 %')
     const paused = lamp({ on: false }, { owner: 'off', has_motion: true, motion_paused: true })
     expect(lampStatus(paused, snapshot(), en)).toBe('Off, motion paused')
+  })
+
+  it('say whether motion switches them, so a hand can give them back', () => {
+    expect(motionMode(lamp({}, { owner: 'manual', has_motion: false }))).toBeNull()
+    expect(motionMode(lamp({}, { owner: 'manual', has_motion: true }))).toBe('byHand')
+    expect(motionMode(lamp({ on: false }, { owner: 'off', has_motion: true, motion_paused: true }))).toBe('waits')
+    expect(motionMode(lamp({ on: false }, { owner: 'off', has_motion: true }))).toBe('motion')
+    expect(motionMode(lamp({}, { owner: 'motion', has_motion: true }))).toBe('motion')
+    expect(motionMode(lamp({}, { owner: 'sunrise', has_motion: true }))).toBeNull()
   })
 })

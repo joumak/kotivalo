@@ -47,7 +47,7 @@ async function request(method: string, path: string, body?: unknown): Promise<Sn
 
 export const api = {
   state: () => request('GET', '/api/state'),
-  lamp: (ieee: string, action: 'on' | 'off' | 'toggle' | 'level' | 'kelvin', value?: number) =>
+  lamp: (ieee: string, action: 'on' | 'off' | 'toggle' | 'level' | 'kelvin' | 'auto', value?: number) =>
     request('POST', `/api/lights/${ieee}`, { action, value }),
   refreshLamp: (ieee: string) => request('POST', `/api/lights/${ieee}/refresh`, {}),
   wakeup: (change: { light?: string | null; alarms?: Alarm[]; ramp?: Ramp }) =>

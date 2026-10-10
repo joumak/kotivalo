@@ -145,3 +145,26 @@ async def test_fake_events_endpoint_exists_only_in_fake_mode(setup, aiohttp_clie
     real = Service(Store(tmp_path / "real"))  # not started: only the routes matter
     real_client = await aiohttp_client(make_web_app(real))
     assert (await real_client.post("/api/fake/event", json=body)).status in (404, 405)
+
+
+async def test_let_motion_control_a_lamp_again(setup):
+    service, client, clock = setup
+    service.events.put_nowait(Motion(SENSOR, True))
+    await settle(service)
+    await client.post(f"/api/lights/{LAMP}", json={"action": "off"})  # off by hand, in the room
+    service.events.put_nowait(Motion(SENSOR, True))
+    await settle(service)
+    assert lamp_state(service).on is False and service.behaviour.motion_paused(LAMP, clock.now())
+
+    response = await client.post(f"/api/lights/{LAMP}", json={"action": "auto"})
+    assert response.status == 200
+    await settle(service)
+    assert lamp_state(service).on is True  # the room is occupied and dark
+    lamp = next(x for x in (await response.json())["lights"] if x["ieee"] == LAMP)
+    assert lamp["owner"] == "motion" and lamp["motion_paused"] is False
+
+
+async def test_let_motion_control_needs_a_sensor(setup):
+    service, client, clock = setup
+    other = "00:00:00:00:00:00:00:01"
+    assert (await client.post(f"/api/lights/{other}", json={"action": "auto"})).status == 400

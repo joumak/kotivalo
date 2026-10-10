@@ -1,3 +1,4 @@
+import { Activity } from 'lucide-react'
 import { useState } from 'react'
 
 import { useLive } from '@/api/live'
@@ -5,11 +6,12 @@ import type { Lamp, Snapshot } from '@/api/types'
 import { useActions } from '@/api/actions'
 import { LampControls, LampTile } from '@/components/lamp'
 import { PageTitle } from '@/components/shell'
+import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { useT } from '@/i18n'
-import { glowStyle, isLit, lampStatus } from '@/lib/lamp-state'
+import { glowStyle, isLit, lampStatus, motionMode } from '@/lib/lamp-state'
 import { useLayout } from '@/lib/layout'
 import { byRoom } from '@/lib/rooms'
 import { cn } from '@/lib/utils'
@@ -112,7 +114,7 @@ function ControlPanel({ lamp, snapshot, vertical, drawer, sheet }: ControlPanelP
   )
   const heading = drawer ? (
     <DrawerHeader className="flex-row items-center justify-between gap-4 px-0 text-left">
-      <div>
+      <div className="text-left">
         <DrawerTitle className="text-xl">{lamp.name}</DrawerTitle>
         <DrawerDescription>{status}</DrawerDescription>
       </div>
@@ -141,6 +143,29 @@ function ControlPanel({ lamp, snapshot, vertical, drawer, sheet }: ControlPanelP
       <div className={cn(vertical && 'min-h-0 grow')}>
         <LampControls lamp={lamp} orientation={vertical ? 'vertical' : 'horizontal'} />
       </div>
+      <MotionMode lamp={lamp} />
+    </div>
+  )
+}
+
+/** Says whether the motion sensor switches the lamp, and hands it back after a manual switch. */
+function MotionMode({ lamp }: { lamp: Lamp }) {
+  const t = useT()
+  const actions = useActions()
+  const mode = motionMode(lamp)
+  if (!mode) return null
+  const text = { motion: t.lamp.motionControls, byHand: t.lamp.motionByHand, waits: t.lamp.motionWaits }[mode]
+  return (
+    <div className="mt-6 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2">
+      <p className="flex grow basis-48 items-start gap-2 text-sm text-muted-foreground">
+        <Activity aria-hidden className="mt-0.5 size-4 shrink-0" />
+        {text}
+      </p>
+      {mode !== 'motion' && (
+        <Button variant="outline" onClick={() => void actions.lamp(lamp.ieee, 'auto')}>
+          {t.lamp.letMotionControl}
+        </Button>
+      )}
     </div>
   )
 }

@@ -630,6 +630,9 @@ class Service:
 
     async def lamp_action(self, ieee: str, action: str, value: float | None = None) -> None:
         controller = self.registry.controller(ieee)
+        if action == "auto":
+            self._let_motion_control(ieee, controller)
+            return
         if ieee == self.settings.wakeup.light:
             await self.stop_sunrise("manual control")
         if action == "toggle":
@@ -651,6 +654,16 @@ class Service:
                 await controller.on()
             else:
                 await controller.off(**self._park(ieee, controller))
+
+    def _let_motion_control(self, ieee: str, controller: LightController) -> None:
+        """Hands the lamp back to its motion sensor (a running sunrise is left alone)."""
+        if self.behaviour.rule_for_lamp(ieee) is None:
+            raise SettingsError("No motion sensor controls this lamp")
+        now = self.clock.now()
+        actions = self.behaviour.automatic(ieee, bool(controller.state.on), now, self._night(now))
+        LOGGER.info("Motion controls %s again (owner %s)", ieee, self.behaviour.lamp(ieee).owner)
+        self._behaviour_saved()
+        self._run_actions(actions)
 
     def _remember_manual(self, ieee: str, action: str, value: int) -> None:
         """The last level and warmth set by hand (a remote's "on" will restore them)."""

@@ -225,3 +225,37 @@ def test_it_can_say_why_motion_did_nothing():
     b.lux(SENSOR, 300, at(9))
     assert "bright" in b.why_not_on(LAMP, SENSOR, at(9), night=False)
     assert b.why_not_on(LAMP, SENSOR, at(9), night=True) is None
+
+
+def test_let_motion_control_a_lamp_switched_on_by_hand():
+    b = make()
+    b.manual(LAMP, True, at(0))
+    assert b.automatic(LAMP, lamp_on=True, now=at(1), night=False) == []
+    assert b.lamp(LAMP).owner == "motion"
+    assert b.lamp(LAMP).off_at == at(6)  # the room is empty: off after the usual wait
+    assert b.tick(at(6)) == [SwitchOff(LAMP)]
+
+
+def test_let_motion_control_a_lamp_paused_by_a_manual_off():
+    b = make()
+    b.motion(SENSOR, True, at(0), night=False)
+    b.manual(LAMP, False, at(1))  # off by hand while in the room: paused
+    assert b.motion(SENSOR, True, at(2), night=False) == []
+    # Hand it back while still in the room, in the dark: it comes on right away.
+    assert b.automatic(LAMP, lamp_on=False, now=at(3), night=False) == [SwitchOn(LAMP, 254, 2700)]
+    assert b.lamp(LAMP).owner == "motion" and not b.motion_paused(LAMP, at(3))
+
+
+def test_let_motion_control_an_off_lamp_in_an_empty_room_waits_for_motion():
+    b = make()
+    b.manual(LAMP, False, at(0))
+    assert b.automatic(LAMP, lamp_on=False, now=at(1), night=False) == []
+    assert b.motion(SENSOR, True, at(1.5), night=False) == [SwitchOn(LAMP, 254, 2700)]
+
+
+def test_automatic_needs_a_rule_and_leaves_a_sunrise_alone():
+    b = make()
+    assert b.automatic(OTHER, lamp_on=True, now=at(0), night=False) == []
+    b.sunrise_started(LAMP)
+    assert b.automatic(LAMP, lamp_on=True, now=at(1), night=False) == []
+    assert b.lamp(LAMP).owner == "sunrise"

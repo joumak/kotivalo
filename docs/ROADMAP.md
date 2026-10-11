@@ -28,9 +28,14 @@ Done, in order:
 
 **The cause:** it has firmware 2.3.014, which sends presses only to a Zigbee group, and the XStick drops group frames. Its binding to the Pi is accepted but ignored.
 
-**What happened:** an over-the-air update to 24.4.5 (IKEA image type 0x11C1, 207 KB) was tried. The remote kept dropping off the network mid-setup, probably because of a weak battery.
-
-**Next:** fit a fresh battery, then press **Päivitä laiteohjelmisto** in its settings. The same applies to an E1743 on/off switch on old firmware.
+**Update attempts:** an over-the-air update to 24.4.5 (IKEA image type 0x11C1, 207 KB) failed over the XStick.
+- **2026-10-10:** the remote kept dropping off the network mid-setup, probably because of a weak battery.
+- **2026-10-11,** with a fresh battery:
+  - **Rejoining:** after its long time without a battery the remote had lost the network (`ADDRESS_NOT_FOUND`) and needed re-pairing (4 presses). Afterwards it answered binds and reads normally.
+  - **First attempts (old code):** the remote did ask for its firmware a few minutes after rejoining, while zigpy's fast-poll requests were also being sent. But the traffic queued behind the sleeping remote, the XStick missed two radio checks, and the service restarted. The XStick then didn't answer at the next start; the second start worked.
+  - **After the fix** (one continuous session, only the image notify repeated, no fast poll, patient radio check): the notifies were delivered, but the remote never asked, for 30 minutes while idle.
+  - **Best guess:** fast polling, sent once at the start rather than per retry, is what makes it ask.
+- **Next:** retry with the ZBT-2. The same applies to an E1743 on/off switch on old firmware.
 
 ### 2. Every frame arrives four times
 
@@ -42,7 +47,9 @@ Each remote frame reaches the Pi four times within ~40 ms. This is probably MAC-
 
 Requests to a sleepy device wait at its parent until it wakes, and the XBee seems to stall meanwhile. Once a radio check answered 3 s late. zigpy-xbee then logged `InvalidStateError` from `_handle_at_response`: it sets a result on an already timed-out future. That's harmless, but noisy.
 
-**Mitigation:** setup retries are limited to one every 5 minutes per device.
+**Mitigation:** setup retries are limited to one every 5 minutes per device. While a firmware update runs, the radio check allows five misses instead of two.
+
+**Seen 2026-10-11:** during the remote's firmware update the XStick stopped answering long enough for a restart, and at the next start it didn't even accept API mode (it recovered on the second start).
 
 ### 4. Laptop Python differs from the Pi
 

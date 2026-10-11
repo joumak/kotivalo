@@ -328,7 +328,11 @@ class Service:
             except Exception as exc:  # noqa: BLE001
                 failures += 1
                 LOGGER.warning("Radio check failed (%d): %r", failures, exc)
-                if failures >= 2:
+                # A firmware update keeps the XStick busy: give it longer before a restart
+                # (which would abort the update).
+                states = [f.get("state") for f in self.firmware.values()]
+                updating = "waiting" in states or "updating" in states
+                if failures >= (5 if updating else 2):
                     LOGGER.error("Radio not responding, exiting for a restart")
                     self.request_stop(1)
                     return

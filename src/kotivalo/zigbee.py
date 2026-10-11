@@ -343,7 +343,7 @@ IKEA_IMAGE_TYPES = {
     "RODRET Dimmer": 0x11CD,
 }
 WAKE_WINDOW_S = 300  # how long to keep trying to reach a sleeping remote
-WAKE_RETRY_S = 5
+WAKE_RETRY_S = 1
 
 
 class FirmwareError(Exception):
@@ -366,36 +366,57 @@ async def find_firmware(device: zigpy.device.Device):
     return OtaImageWithMetadata(metadata=newest, firmware=await newest.fetch())
 
 
+async def _ota_attempt(device, image, progress: Callable[[int, int], None]):
+    """One offer: an image notify, then serve the device's requests until it finishes
+    or goes quiet for 30 s. Only the notify is sent: no fast-poll requests, which would
+    queue up behind a sleeping device and choke the XStick."""
+    from zigpy.ota.manager import OTAManager
+
+    with OTAManager(device, image, progress_callback=progress) as ota:
+        await ota.notify()
+        return await ota.wait()
+
+
 async def update_firmware(
-    device, image, on_progress: Callable[[float], None], wake_window_s: float = WAKE_WINDOW_S
+    device,
+    image,
+    on_progress: Callable[[float], None],
+    wake_window_s: float = WAKE_WINDOW_S,
+    attempt=_ota_attempt,
 ) -> str:
     """Send `image` to a sleepy device. It hears us only right after a button press, so
     keep offering the update until it starts (the user presses a button now and then).
+    zigpy's own OTA handler would answer "no update available" to a query that falls
+    between two offers, so it stays off (ota_in_progress) for the whole window.
     Returns "done", "none" (the device declined: up to date, or other hardware) or
     "failed". A failed update leaves the old firmware in place."""
     started = False
 
-    def progress(current: int, total: int, percent: float) -> None:
+    def progress(current: int, total: int) -> None:
         nonlocal started
         started = True
-        on_progress(percent)
+        on_progress(100 * current / total if total else 0.0)
 
     loop = asyncio.get_running_loop()
     deadline = loop.time() + wake_window_s
-    while True:
-        try:
-            status = await device.update_firmware(image, progress_callback=progress)
-        except (zigpy.exceptions.ZigbeeException, TimeoutError) as exc:
-            status = exc
-        if status == foundation.Status.SUCCESS:
-            return "done"
-        if status == foundation.Status.NO_IMAGE_AVAILABLE:
-            return "none"
-        if started or loop.time() >= deadline:
-            LOGGER.warning("Firmware update of %s failed: %r", device.ieee, status)
-            return "failed"
-        LOGGER.info("Waiting for %s to wake up for its firmware update (%r)", device.ieee, status)
-        await asyncio.sleep(WAKE_RETRY_S)
+    device.ota_in_progress = True
+    try:
+        while True:
+            try:
+                status = await attempt(device, image, progress)
+            except (zigpy.exceptions.ZigbeeException, TimeoutError) as exc:
+                status = exc
+            if status == foundation.Status.SUCCESS:
+                return "done"
+            if status == foundation.Status.NO_IMAGE_AVAILABLE:
+                return "none"
+            if started or loop.time() >= deadline:
+                LOGGER.warning("Firmware update of %s failed: %r", device.ieee, status)
+                return "failed"
+            LOGGER.info("Waiting for %s to ask for its firmware (%r)", device.ieee, status)
+            await asyncio.sleep(WAKE_RETRY_S)
+    finally:
+        device.ota_in_progress = False
 
 
 def illuminance_to_lux(measured_value: int) -> float:

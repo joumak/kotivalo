@@ -35,7 +35,7 @@ Done, in order:
   - **First attempts (old code):** the remote did ask for its firmware a few minutes after rejoining, while zigpy's fast-poll requests were also being sent. But the traffic queued behind the sleeping remote, the XStick missed two radio checks, and the service restarted. The XStick then didn't answer at the next start; the second start worked.
   - **After the fix** (one continuous session, only the image notify repeated, no fast poll, patient radio check): the notifies were delivered, but the remote never asked, for 30 minutes while idle.
   - **Best guess:** fast polling, sent once at the start rather than per retry, is what makes it ask.
-- **Next:** retry with the ZBT-2. The same applies to an E1743 on/off switch on old firmware.
+- **Next:** retry with the new radio (feature 4). The same applies to an E1743 on/off switch on old firmware.
 
 ### 2. Every frame arrives four times
 
@@ -102,12 +102,20 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 
 ### 4. A better radio
 
-A Sonoff ZBDongle-E (EZSP) or ZBDongle-P (ZNP) would bring:
+**Candidates:** both use the Silicon Labs EFR32MG24 chip and ship with Zigbee coordinator firmware (EmberZNet, EZSP). zigpy's `bellows` speaks EZSP and is already installed.
+- **Home Assistant Connect ZBT-2:** 460800 baud.
+- **Sonoff Dongle Plus MG24** (model Dongle-PMG24, not the older ZBDongle-E): 115200 baud, an external SMA antenna and a USB extension cable. Its firmware is updated with Sonoff's web flasher (dongle.sonoff.tech) from a laptop: update it before forming the network.
+
+**What it would bring:**
 - group traffic, so old-firmware remotes would work
 - more child slots
 - probably no quadruple frames
 
-The code talks to zigpy's generic API, so swapping is a settings change plus re-pairing (see the README).
+**Thread:** either radio runs Zigbee *or* Thread; running both at once (MultiPAN) is unreliable. IKEA's new Matter-over-Thread devices would need a second radio and a Matter stack: a separate project.
+
+**The switch-over:**
+- The code talks to zigpy's generic API, so swapping is a settings change (radio type, port, baud) plus forming a new network and re-pairing every device (see the README).
+- Do it before the AGGE dimmer is installed, so the dimmer is paired only once.
 
 ### 5. Flash-free switch-on: not possible on this firmware
 

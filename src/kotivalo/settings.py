@@ -331,6 +331,9 @@ class State:
     # The lamps lit at the last master-off: {ieee: {level, kelvin, owner}}. Kept until the
     # next master-off, so the master switch always brings back "my usual lights".
     master: dict[str, Any] = field(default_factory=dict)
+    # A delayed master-off (UTC ISO): kept here so a restart during the countdown still
+    # switches the lights off.
+    master_off_at: str | None = None
     # Each bulb's last known brightness and warmth {ieee: {level, mireds}}: shown for a lamp
     # that can't be read (e.g. switched off at the wall), also after a restart.
     last_known: dict[str, Any] = field(default_factory=dict)

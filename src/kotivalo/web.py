@@ -123,7 +123,7 @@ async def put_fixture(request: web.Request) -> web.Response:
 
 async def post_master(request: web.Request) -> web.Response:
     body = await request.json()
-    await service_of(request).master_switch(str(body.get("action", "")))
+    await service_of(request).master_switch(str(body.get("action", "")), body.get("delay", 0))
     return ok(request)
 
 

@@ -75,6 +75,11 @@ Each command goes to every bulb at once. The fixture counts as on if any of its 
 - It switches every lamp off.
 - It remembers which lamps were lit, at what brightness and warmth, and who controlled them.
 
+**Later:** the timer button next to it (**Sammuta myöhemmin**, "Switch off later") switches everything off **in 1 or 5 minutes**, e.g. time to walk out or get into bed.
+- While it counts down, the button shows **Pois 5 min päästä** ("All off in 5 min") with **Peru** ("Cancel").
+- What it remembers is whatever is lit when the time is up.
+- The countdown survives a restart of Kotivalo. If Kotivalo was down for over 10 minutes past the time, it's dropped instead.
+
 **Palauta valot** ("Restore lights") brings that set back:
 - Lamps that were on by hand come back exactly as they were.
 - Lamps the motion sensor had lit go back to their sensor. They come on again only when it sees someone in a dark room.

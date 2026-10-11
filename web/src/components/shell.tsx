@@ -105,7 +105,7 @@ function Banners() {
 
 export function PageTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mb-5 flex items-center justify-between gap-4">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
       <h1 className="text-3xl font-semibold tracking-tight">{children}</h1>
       {action}
     </div>

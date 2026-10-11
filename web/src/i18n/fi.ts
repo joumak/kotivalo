@@ -138,6 +138,11 @@ export const fi: Messages = {
     allOff: 'Kaikki pois',
     restore: 'Palauta valot',
     allOn: 'Kaikki päälle',
+    later: 'Sammuta myöhemmin',
+    after: (minutes: number) => `${minutes} min päästä`,
+    offIn: (seconds: number) =>
+      seconds >= 60 ? `Pois ${Math.round(seconds / 60)} min päästä` : `Pois ${seconds} s päästä`,
+    cancel: 'Peru',
   },
   weather: {
     conditions: {

@@ -144,6 +144,11 @@ export const en = {
     allOff: 'All off',
     restore: 'Restore lights',
     allOn: 'All on',
+    later: 'Switch off later',
+    after: (minutes: number) => `In ${minutes} min`,
+    offIn: (seconds: number) =>
+      seconds >= 60 ? `All off in ${Math.round(seconds / 60)} min` : `All off in ${seconds} s`,
+    cancel: 'Cancel',
   },
   weather: {
     conditions: {

@@ -127,9 +127,12 @@ export interface Place extends WeatherPlace {
   country: string
 }
 
+export type MasterCommand = 'on' | 'off' | 'cancel'
+
 export interface MasterStatus {
   any_on: boolean
   remembered: string[] // lamps lit at the last master-off; "on" brings them back
+  off_at: string | null // a delayed master-off (UTC ISO)
 }
 
 export interface Alarm {

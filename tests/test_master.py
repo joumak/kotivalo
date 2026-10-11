@@ -1,7 +1,7 @@
 """The master switch: everything off (remembering what was lit) and back on."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -56,7 +56,11 @@ async def test_off_remembers_the_lit_lamps_and_leaves_alarms_alone(setup):
     alarms = service.settings.wakeup.alarms
 
     snapshot = await (await client.post("/api/master", json={"action": "off"})).json()
-    assert snapshot["master"] == {"any_on": False, "remembered": [WAKEUP, MOTION_LAMP]}
+    assert snapshot["master"] == {
+        "any_on": False,
+        "remembered": [WAKEUP, MOTION_LAMP],
+        "off_at": None,
+    }
     await settle()
     assert all(state(service, ieee).on is False for ieee in (WAKEUP, MOTION_LAMP))
     memory = service.store.load_state().master  # survives a restart
@@ -116,3 +120,81 @@ async def test_snapshots_are_numbered(setup):
     first = await (await client.get("/api/state")).json()
     second = await (await client.get("/api/state")).json()
     assert first["boot"] == second["boot"] and second["seq"] > first["seq"]
+
+
+# --- a delayed off -------------------------------------------------------------------
+
+
+async def run_timer(service, clock, when):
+    clock.t = when
+    service._master_changed.set()
+    await settle()
+
+
+async def test_a_delayed_off_waits_then_switches_everything_off(setup):
+    service, client, clock = setup
+    await light_up(service, client)
+    body = {"action": "off", "delay": 300}
+    snapshot = await (await client.post("/api/master", json=body)).json()
+    off_at = datetime.fromisoformat(snapshot["master"]["off_at"])
+    assert 299 <= (off_at - clock.now()).total_seconds() <= 300
+    await run_timer(service, clock, off_at - timedelta(seconds=1))
+    assert state(service, WAKEUP).on and state(service, MOTION_LAMP).on  # not yet
+
+    await run_timer(service, clock, off_at)
+    assert all(state(service, ieee).on is False for ieee in (WAKEUP, MOTION_LAMP))
+    assert service.state.master[WAKEUP]["level"] == 150  # remembered as usual
+    assert service.state.master_off_at is None
+    assert (await (await client.get("/api/state")).json())["master"]["off_at"] is None
+
+
+async def test_cancel_and_every_other_master_action_drop_a_delayed_off(setup):
+    service, client, clock = setup
+    await light_up(service, client)
+    for action in ("cancel", "on", "off"):
+        await client.post("/api/master", json={"action": "off", "delay": 60})
+        assert service.state.master_off_at is not None
+        await client.post("/api/master", json={"action": action})
+        assert service.state.master_off_at is None, action
+    await settle()
+    await client.post("/api/master", json={"action": "on"})
+    await settle()
+    await run_timer(service, clock, clock.now() + timedelta(minutes=2))
+    assert state(service, WAKEUP).on is True  # nothing left to fire
+
+
+async def test_a_delayed_off_survives_a_restart(tmp_path, caplog):
+    clock = FakeClock(T0)
+    before = Service(Store(tmp_path), fake=True, fake_lamps=3, clock=clock)
+    await before.start()
+    await before.master_switch("off", 60)
+    await before.stop()
+
+    clock.advance(90)  # down for a moment, past the deadline
+    after = Service(Store(tmp_path), fake=True, fake_lamps=3, clock=clock)
+    with caplog.at_level("INFO", logger="kotivalo.app"):
+        await after.start()
+        try:
+            await settle()
+            assert after.state.master_off_at is None
+            assert "Master off: remembering" in caplog.text
+            assert "Dropped" not in caplog.text
+        finally:
+            await after.stop()
+
+
+async def test_a_long_overdue_off_is_dropped(setup):
+    service, client, clock = setup
+    await light_up(service, client)
+    await client.post("/api/master", json={"action": "off", "delay": 60})
+    await run_timer(service, clock, clock.now() + timedelta(minutes=30))  # e.g. down that long
+    assert state(service, WAKEUP).on is True
+    assert service.state.master_off_at is None
+
+
+async def test_bad_delays_are_refused(setup):
+    service, client, clock = setup
+    for delay in (-1, 3601, 1.5, "60", True):
+        response = await client.post("/api/master", json={"action": "off", "delay": delay})
+        assert response.status == 400, delay
+    assert service.state.master_off_at is None

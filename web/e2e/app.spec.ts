@@ -20,6 +20,7 @@ async function reset(request: APIRequestContext) {
     await request.post(`/api/lights/${ieee}`, { data: { action: 'off' } })
   }
   await request.put('/api/night', { data: { start: '23:00', end: '07:00' } })
+  await request.post('/api/master', { data: { action: 'cancel' } })
   await request.delete(`/api/motion/${SENSOR}`)
   await request.delete(`/api/remotes/${REMOTE}`)
   await request.put('/api/weather', { data: { lat: null, lon: null } })
@@ -138,6 +139,19 @@ test('the master switch turns everything off and brings it back', async ({ page,
   await page.getByRole('button', { name: 'Palauta valot' }).click()
   await expect.poll(async () => (await lamp(request)).state.level).toBe(150)
   await expect(page.getByRole('button', { name: 'Kaikki pois' })).toBeVisible()
+})
+
+test('the master switch can wait a few minutes before switching off', async ({ page, request }) => {
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 150 } })
+  await open(page, '#/lights')
+  await page.getByRole('button', { name: 'Sammuta myöhemmin' }).click()
+  await page.getByRole('menuitem', { name: '5 min päästä' }).click()
+  await expect(page.getByText('Pois 5 min päästä')).toBeVisible()
+  expect((await state(request)).master.off_at).not.toBeNull()
+  expect((await lamp(request)).state.on).toBe(true) // not yet
+  await page.getByRole('button', { name: 'Peru' }).click()
+  await expect(page.getByRole('button', { name: 'Kaikki pois' })).toBeVisible()
+  expect((await state(request)).master.off_at).toBeNull()
 })
 
 test('hand only keeps motion away from a lamp until released', async ({ page, request }) => {

@@ -84,6 +84,8 @@ WEATHER_RETRY_MAX_S = 1800
 WEATHER_STALE_S = 3 * 3600  # older weather is not shown
 LAST_KNOWN_SAVE_S = 600  # how often lamps' last known states are saved (when changed)
 CONFIGURE_RETRY_S = 300  # a sleepy device that failed setup is retried at most this often
+MASTER_MAX_DELAY_S = 3600  # a delayed master-off
+MASTER_LATE_S = 600  # a delayed master-off overdue by more (the service was down) is dropped
 
 
 def poll_delay(failures: int) -> float:
@@ -175,6 +177,7 @@ class Service:
         self.weather_fetched: datetime | None = None
         self.fetch_weather = MetClient().fetch  # (lat, lon) -> (json, expires); tests replace it
         self._weather_changed = asyncio.Event()
+        self._master_changed = asyncio.Event()
         # Snapshots are numbered, so the UI can ignore one that arrives after a newer one
         # (an action's response racing the live stream); the boot id covers a restart.
         self._boot = secrets.token_hex(4)
@@ -235,6 +238,7 @@ class Service:
         self._spawn(self._behaviour_loop())
         self._spawn(self._weather_loop())
         self._spawn(self._last_known_loop())
+        self._spawn(self._master_timer())
         if self.zigbee is not None:
             self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
 
@@ -1109,17 +1113,62 @@ class Service:
 
     # --- master switch -----------------------------------------------------------------
 
-    async def master_switch(self, action: str) -> None:
+    async def master_switch(self, action: str, delay_s: object = 0) -> None:
         """ "off": remember the lit lamps (brightness, warmth, owner) and switch everything
-        off. "on": bring the remembered lamps back (motion-lit ones go back to their
-        sensor); with nothing ever remembered, every lamp at its last setting by hand.
+        off, now or after `delay_s` seconds. "on": bring the remembered lamps back
+        (motion-lit ones go back to their sensor); with nothing ever remembered, every lamp
+        at its last setting by hand. "cancel": drop a delayed off; so does any other action.
         Alarms are untouched (a sunrise running right now stops, like any manual off)."""
+        if action not in ("off", "on", "cancel"):
+            raise SettingsError(f"Unknown master action {action!r}")
+        if type(delay_s) is not int or not 0 <= delay_s <= MASTER_MAX_DELAY_S:
+            raise SettingsError(f"The delay must be 0–{MASTER_MAX_DELAY_S} seconds")
+        if action == "off" and delay_s:
+            LOGGER.info("Master off in %d s", delay_s)
+            self._set_master_off_at(self.clock.now() + timedelta(seconds=delay_s))
+            return
+        if self.state.master_off_at:
+            LOGGER.info("Delayed master off cancelled (%s)", action)
+        self._set_master_off_at(None)
         if action == "off":
             await self._master_off()
         elif action == "on":
             await self._master_on()
-        else:
-            raise SettingsError(f"Unknown master action {action!r}")
+
+    def _master_off_time(self) -> datetime | None:
+        try:
+            return datetime.fromisoformat(self.state.master_off_at or "")
+        except ValueError:
+            return None
+
+    def _set_master_off_at(self, when: datetime | None) -> None:
+        value = when.isoformat(timespec="seconds") if when else None
+        if value != self.state.master_off_at:
+            self.state.master_off_at = value
+            self.store.save_state(self.state)
+            self._master_changed.set()
+
+    async def _master_timer(self) -> None:
+        """Runs a delayed master-off, also one set before a restart."""
+        while True:
+            self._master_changed.clear()
+            off_at = self._master_off_time()
+            now = self.clock.now()
+            if off_at is not None and now >= off_at:
+                self._set_master_off_at(None)
+                if now - off_at > timedelta(seconds=MASTER_LATE_S):
+                    LOGGER.warning("Dropped the master off due at %s: too late", off_at)
+                    continue
+                try:
+                    await self._master_off()
+                except Exception:
+                    LOGGER.exception("Delayed master off failed")
+                self.notify()
+                continue
+            wait = None if off_at is None else min((off_at - now).total_seconds(), BEHAVIOUR_TICK_S)
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(wait):
+                    await self._master_changed.wait()
 
     async def _master_off(self) -> None:
         memory = {}
@@ -1179,6 +1228,7 @@ class Service:
                 self.registry.controller(i).state.on is True for i in self.registry.lamp_ids()
             ),
             "remembered": sorted(i for i in self.state.master if self.registry.is_lamp(i)),
+            "off_at": self.state.master_off_at,
         }
 
     def _remember_manual(self, ieee: str, action: str, value: int) -> None:

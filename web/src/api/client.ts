@@ -1,4 +1,4 @@
-import type { Alarm, MotionRule, Place, Ramp, Snapshot, WeatherPlace } from './types'
+import type { Alarm, MasterCommand, MotionRule, Place, Ramp, Snapshot, WeatherPlace } from './types'
 
 const TOKEN_KEY = 'kotivalo-token'
 
@@ -64,7 +64,7 @@ export const api = {
   testSunrise: (minutes: number) => request('POST', '/api/sunrise/test', { minutes }),
   stopSunrise: () => request('POST', '/api/sunrise/stop', {}),
   permit: (seconds: number) => request('POST', '/api/permit', { seconds }),
-  master: (action: 'on' | 'off') => request('POST', '/api/master', { action }),
+  master: (action: MasterCommand, delay = 0) => request('POST', '/api/master', { action, delay }),
   createFixture: (fixture: { name: string; room: string; members: string[] }) =>
     request('POST', '/api/fixtures', fixture),
   updateFixture: (ieee: string, members: string[]) => request('PUT', `/api/fixtures/${ieee}`, { members }),

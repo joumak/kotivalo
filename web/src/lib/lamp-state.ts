@@ -15,11 +15,21 @@ export function isLit(lamp: Lamp): boolean {
   return lamp.state.on === true
 }
 
+/** The brightness and warmth the lamp last had: "59 %, 2500 K". Null if never read. */
+export function lastKnown(lamp: Lamp, t: Messages): string | null {
+  if (lamp.state.level === null) return null
+  const level = t.lamp.level(levelPercent(lamp.state.level))
+  return lamp.caps.supports_ct && lamp.state.kelvin ? `${level}, ${t.lamp.kelvin(lamp.state.kelvin)}` : level
+}
+
 /** One short line saying what the lamp is doing, and why. */
 export function lampStatus(lamp: Lamp, snapshot: Snapshot, t: Messages): string {
   const run = snapshot.sunrise
   const time = (iso: string) => formatTime(iso, t.locale, snapshot.timezone)
-  if (lamp.error) return t.lamp.notResponding
+  if (lamp.error) {
+    const last = lastKnown(lamp, t)
+    return last ? `${t.lamp.notResponding} ${t.lamp.lastKnown(last)}` : t.lamp.notResponding
+  }
   if (run && run.light === lamp.ieee) {
     if (run.phase === 'hold') return run.off ? t.lamp.sunriseHold(time(run.off)) : t.lamp.sunriseDone
     return t.lamp.sunrise(time(run.end))

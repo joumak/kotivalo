@@ -117,3 +117,22 @@ async def test_failed_setup_of_a_sleepy_device_is_retried_rarely(tmp_path, monke
     finally:
         service.zigbee = None
         await service.stop()
+
+
+async def test_a_lamp_that_cannot_be_read_shows_what_it_last_had(tmp_path):
+    from kotivalo.light import FakeLight
+
+    first = Service(Store(tmp_path), fake=True)
+    await first.start()
+    await first.lamp_action(LAMP, "level", 150)
+    await first.stop()  # saves the lamps' last known states
+
+    second = Service(Store(tmp_path), fake=True)
+    second._fake_lights[LAMP] = FakeLight(fail=True)  # e.g. switched off at the wall
+    await second.start()
+    try:
+        lamp = next(x for x in second.snapshot()["lights"] if x["ieee"] == LAMP)
+        assert lamp["state"]["level"] == 150 and lamp["state"]["on"] is None
+        assert lamp["error"] is not None
+    finally:
+        await second.stop()

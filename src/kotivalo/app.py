@@ -82,6 +82,7 @@ HOLD_LIMIT_S = 10  # a held arrow whose release never arrived stops by itself
 WEATHER_RETRY_S = 300  # after a failed weather fetch, doubling up to WEATHER_RETRY_MAX_S
 WEATHER_RETRY_MAX_S = 1800
 WEATHER_STALE_S = 3 * 3600  # older weather is not shown
+LAST_KNOWN_SAVE_S = 600  # how often lamps' last known states are saved (when changed)
 CONFIGURE_RETRY_S = 300  # a sleepy device that failed setup is retried at most this often
 
 
@@ -224,6 +225,7 @@ class Service:
             self.settings.wakeup.light = found[0].ieee  # in memory only
         self._attach_wakeup()
         await self._refresh_all()
+        self._restore_last_known()
         self._reconcile_owners()
         self._spawn(self.scheduler.run_forever())
         self._spawn(self._clock_watch())
@@ -232,10 +234,12 @@ class Service:
         self._spawn(self._poll_lamps())
         self._spawn(self._behaviour_loop())
         self._spawn(self._weather_loop())
+        self._spawn(self._last_known_loop())
         if self.zigbee is not None:
             self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
 
     async def stop(self) -> None:
+        self._remember_last_known()
         await self.manager.shutdown()
         for remote in list(self._repeats):
             self._stop_repeat(remote)
@@ -297,14 +301,17 @@ class Service:
         """Read every lamp's capabilities and state (unreachable lamps are skipped)."""
 
         async def refresh(ieee: str, controller: LightController) -> bool:
-            with contextlib.suppress(LightError, TimeoutError):
+            try:
                 async with asyncio.timeout(REFRESH_TIMEOUT_S), controller.lock:
                     caps = await controller.light.read_caps()
                     changed = caps != controller.caps
                     self.registry.set_caps(ieee, caps)
                     await controller.refresh()
                     return changed
-            return False
+            except (LightError, TimeoutError) as exc:  # shown as not answering at once
+                controller.reachable, controller.failures = False, controller.failures + 1
+                controller.last_error = str(exc) or "no answer"
+                return False
 
         lamps = [(i, c) for i, c in self.registry.controllers.items() if c.available]
         changed = any(await asyncio.gather(*(refresh(i, c) for i, c in lamps)))
@@ -346,6 +353,34 @@ class Service:
             if prune_skipped(self.state, self.clock.now()):
                 self.store.save_state(self.state)
             await asyncio.sleep(CLOCK_CHECK_INTERVAL_S)
+
+    def _restore_last_known(self) -> None:
+        """A bulb that couldn't be read at startup shows the brightness and warmth it last
+        had (its on/off stays unknown)."""
+        for ieee, saved in self.state.last_known.items():
+            controller = self.registry.controllers.get(ieee)
+            if controller is not None and controller.state.level is None:
+                controller.state.level = saved.get("level")
+                controller.state.mireds = saved.get("mireds")
+        for fixture in self.registry.fixture_ids():
+            self.registry.update_fixture(fixture)
+
+    def _remember_last_known(self) -> None:
+        known = {
+            ieee: {"level": c.state.level, "mireds": c.state.mireds}
+            for ieee, c in self.registry.controllers.items()
+            if c.state.level is not None
+        }
+        if known != self.state.last_known:
+            self.state.last_known = known
+            self.store.save_state(self.state)
+
+    async def _last_known_loop(self) -> None:
+        """Saved now and then rather than on every change: a dragged slider would otherwise
+        write the SD card many times a second."""
+        while True:
+            await asyncio.sleep(LAST_KNOWN_SAVE_S)
+            self._remember_last_known()
 
     async def _ticker(self) -> None:
         """Periodic live updates: sunrise progress, pairing countdown, relative times."""

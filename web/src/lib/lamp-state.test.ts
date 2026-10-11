@@ -50,7 +50,9 @@ describe('lamp status', () => {
   })
 
   it('says when a lamp does not respond', () => {
-    expect(lampStatus(lamp({}, { error: 'timeout' }), snapshot(), en)).toBe('Not responding')
+    expect(lampStatus(lamp({}, { error: 'timeout' }), snapshot(), en)).toBe(
+      'Not responding: is the wall switch off? Last 67 %, 2700 K',
+    )
   })
 })
 
@@ -85,5 +87,14 @@ describe('lamps with a motion sensor', () => {
     expect(lampStatus(held, snapshot(), fi)).toBe('Vain käsin, 50 %')
     expect(lampStatus(lamp({ on: false }, { owner: 'off', hand_only: true }), snapshot(), en)).toBe('Hand only, off')
     expect(motionMode(held)).toBeNull()
+  })
+})
+
+describe('lamps that do not answer', () => {
+  it('suggest the wall switch and show their last known state', () => {
+    const silent = lamp({ on: null, level: 150, kelvin: 2500 }, { error: 'read state failed' })
+    expect(lampStatus(silent, snapshot(), fi)).toBe('Ei vastaa: onko seinäkatkaisija pois? Viimeksi 59 %, 2500 K')
+    const never = lamp({ on: null, level: null, kelvin: null }, { error: 'read state failed' })
+    expect(lampStatus(never, snapshot(), en)).toBe('Not responding: is the wall switch off?')
   })
 })

@@ -95,7 +95,8 @@ export function LampControls({ lamp, orientation = 'horizontal' }: LampControlsP
   )
   const sendKelvin = useCallback((kelvin: number) => void actions.lamp(ieee, 'kelvin', kelvin), [actions, ieee])
 
-  const brightness = useLiveValue(lit ? levelPercent(lamp.state.level) : 0, sendLevel)
+  // Off shows as 0; a lamp in an unknown state (not answering) keeps its last known level.
+  const brightness = useLiveValue(lamp.state.on === false ? 0 : levelPercent(lamp.state.level), sendLevel)
   const [kMin, kMax] = lamp.kelvin_range
   const warmth = useLiveValue(lamp.state.kelvin ?? DEFAULT_KELVIN, sendKelvin)
 

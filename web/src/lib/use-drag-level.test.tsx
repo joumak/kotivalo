@@ -38,9 +38,16 @@ describe('gesture helpers', () => {
   })
 })
 
-function Card({ remote, send, onTap }: { remote: number; send: (v: number) => void; onTap: () => void }) {
+interface CardProps {
+  remote: number
+  send: (v: number) => void
+  onTap: () => void
+  canDrag?: boolean
+}
+
+function Card({ remote, send, onTap, canDrag = true }: CardProps) {
   const level = useLiveValue(remote, send)
-  const { handlers } = useDragLevel(level, onTap)
+  const { handlers } = useDragLevel(level, onTap, canDrag)
   return (
     <button type="button" {...handlers}>
       <span>{level.value}</span>
@@ -48,10 +55,10 @@ function Card({ remote, send, onTap }: { remote: number; send: (v: number) => vo
   )
 }
 
-function setup(remote = 40) {
+function setup(remote = 40, canDrag = true) {
   const send = vi.fn()
   const onTap = vi.fn()
-  render(<Card remote={remote} send={send} onTap={onTap} />)
+  render(<Card remote={remote} send={send} onTap={onTap} canDrag={canDrag} />)
   const card = screen.getByRole('button')
   vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({ width: 200, height: 120 } as DOMRect)
   const pointer = { pointerId: 1, isPrimary: true, button: 0 }
@@ -135,6 +142,22 @@ describe('useDragLevel', () => {
     move(72)
     fireEvent.pointerCancel(card, { pointerId: 1 })
     expect(send).toHaveBeenLastCalledWith(60)
+  })
+
+  it('on a lamp that cannot dim, a drag neither sets anything nor counts as a tap', () => {
+    const { card, send, onTap, down, move, up } = setup(100, false)
+    down(150)
+    move(130)
+    move(40)
+    up()
+    fireEvent.click(card)
+    fireEvent.keyDown(card, { key: 'ArrowLeft' })
+    expect(send).not.toHaveBeenCalled()
+    expect(onTap).not.toHaveBeenCalled()
+    down(40)
+    up()
+    fireEvent.click(card)
+    expect(onTap).toHaveBeenCalledTimes(1) // a tap still switches
   })
 
   it('steps with the arrow keys', () => {

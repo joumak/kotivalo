@@ -148,13 +148,19 @@ def is_coordinator(device: zigpy.device.Device) -> bool:
 
 
 def light_endpoints(device: zigpy.device.Device) -> list:
-    """Endpoints with both On/Off and Level Control server clusters: one per channel."""
-    found = []
-    for ep_id, ep in sorted(device.endpoints.items()):
-        clusters = getattr(ep, "in_clusters", {})
-        if ep_id != 0 and OnOff.cluster_id in clusters and LevelControl.cluster_id in clusters:
-            found.append(ep)
-    return found
+    """Endpoints that switch a lamp, one per channel: those with both On/Off and Level
+    Control server clusters, or, on a device with none, On/Off alone (a smart plug)."""
+    switchable = [
+        ep
+        for ep_id, ep in sorted(device.endpoints.items())
+        if ep_id != 0 and OnOff.cluster_id in getattr(ep, "in_clusters", {})
+    ]
+    dimmable = [ep for ep in switchable if LevelControl.cluster_id in ep.in_clusters]
+    return dimmable or switchable
+
+
+def is_dimmable(ep) -> bool:
+    return LevelControl.cluster_id in getattr(ep, "in_clusters", {})
 
 
 def light_endpoint(device: zigpy.device.Device):
@@ -183,6 +189,7 @@ def classify(device: zigpy.device.Device) -> tuple[str, int | None]:
 
 def discovered(device: zigpy.device.Device) -> Discovered:
     kind, endpoint = classify(device)
+    first = light_endpoint(device)
     return Discovered(
         ieee=str(device.ieee),
         kind=kind,
@@ -193,6 +200,7 @@ def discovered(device: zigpy.device.Device) -> Discovered:
         last_seen=device.last_seen,
         initialized=device.is_initialized,
         endpoints=tuple(ep.endpoint_id for ep in light_endpoints(device)),
+        dimmable=first is None or is_dimmable(first),
     )
 
 
@@ -552,7 +560,7 @@ class ZigbeeLight:
             return device.endpoints[self.endpoint_id]
         ep = light_endpoint(device)
         if ep is None:
-            raise LightError(f"Device {self.ieee} has no dimmable light endpoint")
+            raise LightError(f"Device {self.ieee} has no light endpoint")
         return ep
 
     async def _send(self, what: str, action: Callable[[Any], Any]) -> Any:
@@ -607,8 +615,9 @@ class ZigbeeLight:
             state = LightState()
             ok, _ = await ep.on_off.read_attributes(["on_off"], allow_cache=False)
             state.on = bool(ok["on_off"]) if "on_off" in ok else None
-            ok, _ = await ep.level.read_attributes(["current_level"], allow_cache=False)
-            state.level = ok.get("current_level")
+            if is_dimmable(ep):
+                ok, _ = await ep.level.read_attributes(["current_level"], allow_cache=False)
+                state.level = ok.get("current_level")
             if Color.cluster_id in ep.in_clusters:
                 ok, _ = await ep.light_color.read_attributes(
                     ["color_temperature"], allow_cache=False
@@ -620,7 +629,9 @@ class ZigbeeLight:
 
     async def read_caps(self) -> LightCaps:
         async def read(ep):
-            caps = LightCaps(model=ep.device.model, manufacturer=ep.device.manufacturer)
+            caps = LightCaps(
+                model=ep.device.model, manufacturer=ep.device.manufacturer, dimmable=is_dimmable(ep)
+            )
             if Color.cluster_id in ep.in_clusters:
                 ok, _ = await ep.light_color.read_attributes(
                     ["color_capabilities", "color_temp_physical_min", "color_temp_physical_max"],

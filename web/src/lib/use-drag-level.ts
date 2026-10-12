@@ -46,8 +46,9 @@ interface Drag {
  *
  * The tap is the button's own click (keyboard and screen readers get it for free); the
  * click that follows a drag or a scroll is swallowed. Arrow keys step 10 %.
+ * With `canDrag` false (a lamp that can't dim), a drag only keeps it from counting as a tap.
  */
-export function useDragLevel(level: LiveValue, onTap: () => void) {
+export function useDragLevel(level: LiveValue, onTap: () => void, canDrag = true) {
   const drag = useRef<Drag | null>(null)
   const noClick = useRef(false)
   const [dragging, setDragging] = useState(false)
@@ -73,8 +74,8 @@ export function useDragLevel(level: LiveValue, onTap: () => void) {
         const kind = gestureKind(e.clientX - d.x, e.clientY - d.y)
         if (kind === 'pending') return
         noClick.current = true
-        if (kind === 'vertical') {
-          drag.current = null // the page scrolls
+        if (kind === 'vertical' || !canDrag) {
+          drag.current = null // the page scrolls, or there's nothing to set
           return
         }
         d.kind = kind
@@ -116,7 +117,7 @@ export function useDragLevel(level: LiveValue, onTap: () => void) {
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
       noClick.current = false
       const step = KEY_STEPS[e.key]
-      if (step === undefined) return
+      if (step === undefined || !canDrag) return
       e.preventDefault()
       const next = shiftLevel(level.value, step)
       if (next === 0) return

@@ -99,6 +99,11 @@ def endpoint(ep_id, inputs=(), outputs=()):
     ("endpoints", "expected"),
     [
         ({1: endpoint(1, inputs=[0x0006, 0x0008, 0x0300])}, ("light", 1)),
+        ({1: endpoint(1, inputs=[0x0000, 0x0003, 0x0004, 0x0005, 0x0006])}, ("light", 1)),  # plug
+        (  # a lamp with an extra on/off endpoint: the dimmable one is the lamp
+            {1: endpoint(1, inputs=[0x0006]), 2: endpoint(2, inputs=[0x0006, 0x0008])},
+            ("light", 2),
+        ),
         (  # VALLHORN: OnOff client on ep 1, occupancy on ep 2
             {1: endpoint(1, inputs=[0x0001], outputs=[0x0006]), 2: endpoint(2, inputs=[0x0406])},
             ("motion", None),

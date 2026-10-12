@@ -4,6 +4,7 @@ import {
   Gamepad2,
   LampCeiling,
   Lightbulb,
+  Plug,
   Pencil,
   SlidersHorizontal,
   Sunrise,
@@ -239,7 +240,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
   const t = useT()
   const actions = useActions()
   const now = useNow(60000)
-  const Icon = ICONS[device.kind]
+  const Icon = device.kind === 'light' && !device.dimmable ? Plug : ICONS[device.kind]
   const seen = !device.paired
     ? t.devices.notSeen
     : device.last_seen
@@ -327,7 +328,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
             <SlidersHorizontal />
           </Button>
         )}
-        {((device.kind === 'light' && !device.fixture) || device.kind === 'fixture') && !device.wakeup && (
+        {((device.kind === 'light' && !device.fixture) || device.kind === 'fixture') && device.dimmable && !device.wakeup && (
           <Button
             size="icon"
             variant="ghost"

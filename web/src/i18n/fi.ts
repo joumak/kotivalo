@@ -29,6 +29,8 @@ export const fi: Messages = {
   time: { ago, inTime },
   lamp: {
     off: 'Pois',
+    on: 'Päällä',
+    onLower: 'päällä',
     level: (percent) => `${percent} %`,
     kelvin: (kelvin) => `${Math.round(kelvin / 50) * 50} K`,
     brightness: 'Kirkkaus',
@@ -61,6 +63,7 @@ export const fi: Messages = {
     noLamps: 'Ei vielä valoja. Lisää valo Laitteet-sivulla.',
     controls: (name: string) => `${name}: säädöt`,
     cardHint: 'Sytytä tai sammuta napauttamalla. Säädä kirkkautta vetämällä sivuttain tai nuolinäppäimillä.',
+    cardHintSwitch: 'Sytytä tai sammuta napauttamalla.',
     close: 'Sulje',
   },
   wakeup: {

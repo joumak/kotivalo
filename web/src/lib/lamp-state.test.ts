@@ -13,7 +13,7 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   model: null,
   paired: true,
   available: true,
-  caps: { model: null, manufacturer: null, supports_ct: true, min_mireds: 250, max_mireds: 454 },
+  caps: { model: null, manufacturer: null, supports_ct: true, min_mireds: 250, max_mireds: 454, dimmable: true },
   kelvin_range: [2200, 4000],
   kelvin_step: 50,
   state: { on: true, level: 170, mireds: 370, kelvin: 2703, ...state },
@@ -38,6 +38,16 @@ describe('lamp status', () => {
   it('says how bright and how warm', () => {
     expect(lampStatus(lamp({}), snapshot(), fi)).toBe('67 %, 2700 K')
     expect(lampStatus(lamp({ on: false }), snapshot(), fi)).toBe('Pois')
+  })
+
+  it('says only on or off for a plug, which cannot dim', () => {
+    const caps = { model: 'TRETAKT', manufacturer: null, supports_ct: false, min_mireds: 250, max_mireds: 454, dimmable: false }
+    const plug = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}) =>
+      lamp({ level: null, mireds: null, kelvin: null, ...state }, { caps, ...extra })
+    expect(lampStatus(plug({}), snapshot(), fi)).toBe('Päällä')
+    expect(lampStatus(plug({ on: false }), snapshot(), fi)).toBe('Pois')
+    expect(lampStatus(plug({}, { has_motion: true }), snapshot(), en)).toBe('On by hand')
+    expect(lampStatus(plug({}, { hand_only: true }), snapshot(), fi)).toBe('Vain käsin, päällä')
   })
 
   it('names a running sunrise on its lamp', () => {

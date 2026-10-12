@@ -1,4 +1,4 @@
-import { Activity, Hand, Settings, Sunrise } from 'lucide-react'
+import { Activity, Hand, Plug, Settings, Sunrise } from 'lucide-react'
 import { useCallback, useId } from 'react'
 import type { CSSProperties } from 'react'
 
@@ -28,19 +28,25 @@ interface LampCardProps {
 /**
  * A lamp as a swatch of its own light, the same on every screen: tap to switch, drag
  * sideways to set the brightness (the light fills the card from the left), and ⚙ for
- * warmth, "hand only" and motion.
+ * warmth, "hand only" and motion. A lamp that can't dim (a smart plug) only switches,
+ * and fills the whole card while on.
  */
 export function LampCard({ lamp, snapshot, onControls, room, size = 'page' }: LampCardProps) {
   const t = useT()
   const actions = useActions()
   const ieee = lamp.ieee
   const lit = isLit(lamp)
+  const dimmable = lamp.caps.dimmable
   const send = useCallback((percent: number) => void actions.lamp(ieee, 'level', percentToLevel(percent)), [actions, ieee])
-  const level = useLiveValue(lit ? levelPercent(lamp.state.level) : 0, send)
-  const { dragging, handlers } = useDragLevel(level, () => {
-    level.reset()
-    void actions.lamp(ieee, 'toggle')
-  })
+  const level = useLiveValue(lit ? (dimmable ? levelPercent(lamp.state.level) : 100) : 0, send)
+  const { dragging, handlers } = useDragLevel(
+    level,
+    () => {
+      level.reset()
+      void actions.lamp(ieee, 'toggle')
+    },
+    dimmable,
+  )
   const statusId = useId()
   const hintId = useId()
 
@@ -97,7 +103,7 @@ export function LampCard({ lamp, snapshot, onControls, room, size = 'page' }: La
           />
         )}
         <span id={hintId} className="sr-only">
-          {t.lamp.cardHint}
+          {dimmable ? t.lamp.cardHint : t.lamp.cardHintSwitch}
         </span>
       </button>
       <Button
@@ -129,7 +135,8 @@ interface CardTextProps {
 function CardText({ lamp, snapshot, room, status, panel, dark, statusId, className, style }: CardTextProps) {
   const sensor = sensorFor(lamp, snapshot)
   const quiet = dark ? 'text-black/60' : 'text-muted-foreground'
-  const icons = lamp.hand_only || sensor || lamp.wakeup
+  const plug = !lamp.caps.dimmable
+  const icons = plug || lamp.hand_only || sensor || lamp.wakeup
   return (
     <span
       aria-hidden={dark || undefined}
@@ -140,6 +147,7 @@ function CardText({ lamp, snapshot, room, status, panel, dark, statusId, classNa
         {(room || icons) && (
           <span className={cn('flex min-h-5 items-center gap-1.5 text-sm', quiet)}>
             {room}
+            {plug && <Plug aria-hidden className="size-4" />}
             {lamp.hand_only ? (
               <Hand aria-hidden className="size-4" />
             ) : (

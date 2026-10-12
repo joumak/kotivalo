@@ -29,6 +29,7 @@ class LightCaps:
     supports_ct: bool = False
     min_mireds: int = 250
     max_mireds: int = 454
+    dimmable: bool = True  # False: on/off only (a smart plug with a lamp in it)
 
     def clamp_mireds(self, mireds: int) -> int:
         return max(self.min_mireds, min(self.max_mireds, round(mireds)))
@@ -81,6 +82,8 @@ class FakeLight:
     def _record(self, *call) -> None:
         if self.fail:
             raise LightError("fake failure")
+        if not self.caps.dimmable and call[0] in ("level", "fade", "move", "stop", "ct"):
+            raise LightError(f"fake plug: no {call[0]}")  # a real one has no Level Control
         stamp = self.clock.now() if self.clock else time.monotonic()
         self.calls.append((stamp, *call))
         LOGGER.debug("FakeLight %s", call)
@@ -200,6 +203,9 @@ class LightController:
 
     async def set_level(self, level: int, transition_s: float = 0) -> None:
         light = self._require()
+        if not self.caps.dimmable:  # a plug: any brightness means on
+            await self.on()
+            return
         level = max(MIN_LEVEL, min(MAX_LEVEL, round(level)))
         await self._run(lambda: light.set_level(level, transition_s))
         self.state.on, self.state.level = True, level
@@ -236,11 +242,14 @@ class LightController:
         1. fade down to park_level over fade_s;
         2. set the warmth park_mireds at that dim level, where the change hardly shows
            (warmth can't fade: a CT transition freezes a FLOALT);
-        3. off, with no transition (IKEA can stay on after a transitioned off)."""
+        3. off, with no transition (IKEA can stay on after a transitioned off).
+        A lamp that can't dim (a plug) just switches off."""
         light = self._require()
         before = self.state.on
         if lit is None:
             lit = before is not False
+        if not self.caps.dimmable:
+            park_level = park_mireds = None
         self.state.on = False  # what we're doing; the fade doesn't change it
         try:
             if lit and park_level is not None:
@@ -260,11 +269,17 @@ class LightController:
 
     async def stop(self) -> None:
         light = self._require()
-        await self._run(light.stop)
+        if self.caps.dimmable:
+            await self._run(light.stop)
 
     async def move(self, up: bool, rate: int) -> None:
-        """Start dimming; the state is unknown until stop() and a refresh()."""
+        """Start dimming; the state is unknown until stop() and a refresh(). A lamp that
+        can't dim switches on for "up"."""
         light = self._require()
+        if not self.caps.dimmable:
+            if up:
+                await self.on()
+            return
         await self._run(lambda: light.move(up, rate))
         if up:
             self.state.on = True
@@ -272,6 +287,8 @@ class LightController:
     async def fade(self, level: int, transition_s: float) -> None:
         """Move a lit lamp to `level` (an off lamp ignores it)."""
         light = self._require()
+        if not self.caps.dimmable:
+            return
         level = max(MIN_LEVEL, min(MAX_LEVEL, level))
         await self._run(lambda: light.fade(level, transition_s))
         if self.state.on:
@@ -336,16 +353,18 @@ def combined_state(states: list[LightState]) -> LightState:
 
 
 def common_caps(caps: list[LightCaps]) -> LightCaps:
-    """What every bulb of a fixture can do: warmth only if all have it, in the shared range."""
+    """What every bulb of a fixture can do: dimming and warmth only if all have them,
+    warmth in the shared range."""
     if not caps:
         return LightCaps()
+    dimmable = all(c.dimmable for c in caps)
     with_ct = [c for c in caps if c.supports_ct]
     if len(with_ct) != len(caps):
-        return LightCaps(supports_ct=False)
+        return LightCaps(supports_ct=False, dimmable=dimmable)
     low, high = max(c.min_mireds for c in caps), min(c.max_mireds for c in caps)
     if low > high:
-        return LightCaps(supports_ct=False)
-    return LightCaps(supports_ct=True, min_mireds=low, max_mireds=high)
+        return LightCaps(supports_ct=False, dimmable=dimmable)
+    return LightCaps(supports_ct=True, min_mireds=low, max_mireds=high, dimmable=dimmable)
 
 
 class FixtureLight:

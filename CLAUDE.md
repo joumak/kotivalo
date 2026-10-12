@@ -26,7 +26,7 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 ```sh
 .venv/bin/pytest -q && .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/kotivalo --state-dir var serve --fake --fake-lamps 6 --port 8080   # in-memory devices
-#   also --fake-sensors N, --fake-remotes N; POST /api/fake/event {type: motion|lux|battery|button, ieee, value}
+#   also --fake-sensors N, --fake-remotes N, --fake-dimmers N, --fake-plugs N; POST /api/fake/event {type: motion|lux|battery|button, ieee, value}
 cd web && npm run dev            # UI with hot reload, /api proxied to :8080 (KOTIVALO_API=... for the Pi)
 cd web && npm run lint && npm test && npm run e2e   # oxlint, Vitest, Playwright (needs a build)
 cd web && npm run screenshots -- <out-dir>          # every layout + panel day/night (needs serve on :8099)
@@ -86,6 +86,10 @@ Everything else:
   - **Finding the radio device:** `Registry.device_of(lamp)` gives the Zigbee device for radio work.
   - **Reports:** `EventBridge` maps `(ieee, endpoint)` to the lamp id.
   - **Pairing and power return:** a join or announce sets up, or refreshes, every channel.
+- **Lamps that can't dim** (smart plugs: `LightCaps.dimmable` False, from an endpoint with On/Off but no Level Control; `Discovered.dimmable` sets it before the first read):
+  - `LightController` turns any level into `on()` and skips fades, parking, moves and stops. So motion, remotes, "on" and the master switch need nothing special.
+  - Never the wake-up lamp. Power-on is "previous", so a power cut at night leaves the lamp off.
+  - The UI card only switches: no drag (`useDragLevel(..., canDrag=false)`), no brightness slider, a plug icon.
 - **Hand only** (`LampMemo.hand_only`; `lamp_action(ieee, "hand_only", 1|0)`):
   - `Behaviour.motion` and `tick` skip the lamp.
   - `automatic()` and `sunrise_started()` clear it.

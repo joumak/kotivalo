@@ -4,6 +4,8 @@ import type { APIRequestContext, Page } from '@playwright/test'
 const LAMP = '00:00:00:00:00:00:00:02'
 const SENSOR = '00:00:00:00:00:00:00:f1'
 const REMOTE = '00:00:00:00:00:00:00:e1'
+const PLUG = '00:00:00:00:00:00:00:c1'
+const PLUG_NAME = 'TRETAKT Smart plug 00c1'
 
 async function state(request: APIRequestContext) {
   return (await request.get('/api/state')).json()
@@ -16,7 +18,7 @@ async function reset(request: APIRequestContext) {
     if (device.kind === 'fixture') await request.delete(`/api/devices/${device.ieee}`)
   }
   await request.put(`/api/devices/${LAMP}`, { data: { name: 'Lukuvalo', room: 'Olohuone' } })
-  for (const ieee of ['00:00:00:00:00:00:00:01', LAMP, '00:00:00:00:00:00:00:03']) {
+  for (const ieee of ['00:00:00:00:00:00:00:01', LAMP, '00:00:00:00:00:00:00:03', PLUG]) {
     await request.post(`/api/lights/${ieee}`, { data: { action: 'off' } })
   }
   await request.put('/api/night', { data: { start: '23:00', end: '07:00' } })
@@ -98,6 +100,18 @@ test('dragging an off lamp right switches it on, left keeps it off', async ({ pa
   expect((await lamp(request)).state.on).toBe(false)
   await dragCard(page, 'Lukuvalo', 0.05, 0.6)
   await expect.poll(async () => (await lamp(request)).state.on).toBe(true)
+})
+
+test('a smart plug only switches: a tap, but no brightness drag or slider', async ({ page, request }) => {
+  await open(page, '#/lights')
+  await page.getByRole('button', { name: PLUG_NAME, exact: true }).click()
+  await expect.poll(async () => (await lamp(request, PLUG)).state.on).toBe(true)
+  await dragCard(page, PLUG_NAME, 0.9, 0.1) // nothing to set, and not a tap either
+  await page.waitForTimeout(400)
+  expect((await lamp(request, PLUG)).state.on).toBe(true)
+  await page.getByRole('button', { name: `${PLUG_NAME}: säädöt` }).click()
+  await expect(page.getByRole('switch', { name: `Sammuta ${PLUG_NAME}` })).toBeVisible()
+  await expect(page.getByRole('slider', { name: 'Kirkkaus' })).toHaveCount(0)
 })
 
 test('changes brightness while the slider moves', async ({ page, request }) => {

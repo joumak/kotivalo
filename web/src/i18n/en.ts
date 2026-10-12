@@ -32,6 +32,8 @@ export const en = {
   time: { ago, inTime },
   lamp: {
     off: 'Off',
+    on: 'On',
+    onLower: 'on',
     level: (percent: number) => `${percent} %`,
     kelvin: (kelvin: number) => `${Math.round(kelvin / 50) * 50} K`,
     brightness: 'Brightness',
@@ -64,6 +66,7 @@ export const en = {
     noLamps: 'No lamps yet. Add one under Devices.',
     controls: (name: string) => `${name}: controls`,
     cardHint: 'Tap to switch it on or off. Drag sideways, or use the arrow keys, to change the brightness.',
+    cardHintSwitch: 'Tap to switch it on or off.',
     close: 'Close',
   },
   wakeup: {

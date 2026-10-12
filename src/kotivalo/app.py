@@ -25,8 +25,10 @@ from kotivalo.light import (
     OFF_FADE_S,
     FakeLight,
     LatestWins,
+    LightCaps,
     LightController,
     LightError,
+    LightState,
 )
 from kotivalo.ramp import (
     KELVIN_STEP,
@@ -94,8 +96,11 @@ def poll_delay(failures: int) -> float:
     return float(min(POLL_MAX_S, POLL_INTERVAL_S * 2**failures))
 
 
+FAKE_PLUG = LightCaps("TRETAKT Smart plug", "IKEA of Sweden", dimmable=False)
+
+
 def fake_devices(
-    lamps: int, sensors: int = 0, remotes: int = 0, dimmers: int = 0
+    lamps: int, sensors: int = 0, remotes: int = 0, dimmers: int = 0, plugs: int = 0
 ) -> list[Discovered]:
     return [
         *(
@@ -114,6 +119,17 @@ def fake_devices(
             Discovered(f"{FAKE_PREFIX}d{i}", "light", "Fake dimmer", "Test", 1, endpoints=(1, 2))
             for i in range(1, dimmers + 1)
         ),
+        *(  # a smart plug with a lamp in it: on/off only
+            Discovered(
+                f"{FAKE_PREFIX}c{i}",
+                "light",
+                FAKE_PLUG.model,
+                FAKE_PLUG.manufacturer,
+                1,
+                dimmable=False,
+            )  # fmt: skip
+            for i in range(1, plugs + 1)
+        ),
     ]
 
 
@@ -127,6 +143,7 @@ class Service:
         fake_sensors: int = 0,
         fake_remotes: int = 0,
         fake_dimmers: int = 0,
+        fake_plugs: int = 0,
         clock: Clock | None = None,
     ):
         self.store = store
@@ -135,6 +152,7 @@ class Service:
         self.fake_sensors = fake_sensors
         self.fake_remotes = fake_remotes
         self.fake_dimmers = fake_dimmers
+        self.fake_plugs = fake_plugs
         self.clock = clock or Clock()
         self.settings = store.load_settings()
         self.state = store.load_state()
@@ -196,6 +214,12 @@ class Service:
 
     def _make_light(self, lamp: str, endpoint: int | None):
         if self.fake:
+            if (
+                lamp not in self._fake_lights
+                and not self.settings.light_settings(lamp).caps.dimmable
+            ):
+                plug = FakeLight(caps=FAKE_PLUG, state=LightState(False), clock=self.clock)
+                self._fake_lights[lamp] = plug
             return self._fake_lights.setdefault(lamp, FakeLight(clock=self.clock))
         if self.zigbee is None:
             return None
@@ -206,7 +230,11 @@ class Service:
     async def start(self) -> None:
         if self.fake:
             found = fake_devices(
-                self.fake_lamps, self.fake_sensors, self.fake_remotes, self.fake_dimmers
+                self.fake_lamps,
+                self.fake_sensors,
+                self.fake_remotes,
+                self.fake_dimmers,
+                self.fake_plugs,
             )
         else:
             from kotivalo.zigbee import DeviceEvents, EventBridge, discover, start_app
@@ -224,8 +252,9 @@ class Service:
             self._spawn(self._radio_watch())
         if self.registry.sync(found):
             self._save_settings()
-        if self.fake and self.settings.wakeup.light is None and found:
-            self.settings.wakeup.light = found[0].ieee  # in memory only
+        dimmable = [d.ieee for d in found if d.kind == "light" and d.dimmable]
+        if self.fake and self.settings.wakeup.light is None and dimmable:
+            self.settings.wakeup.light = dimmable[0]  # in memory only
         self._attach_wakeup()
         await self._refresh_all()
         self._restore_last_known()
@@ -428,7 +457,7 @@ class Service:
         controller = self.registry.controller(ieee)
         caps = await controller.light.read_caps()
         self.registry.set_caps(ieee, caps)
-        if self.settings.wakeup.light is None:
+        if self.settings.wakeup.light is None and caps.dimmable:
             await self.set_wakeup_light(ieee)
         else:
             await self._apply_power_on(ieee)
@@ -708,10 +737,11 @@ class Service:
 
     def _set_power_on_policy(self, ieee: str) -> bool:
         """The wake-up lamp keeps its state over a power cut (a night-time cut must not
-        wake you); other lamps switch on, so their wall switch works. Settings only;
-        returns True for "previous"."""
+        wake you), and so does a plug (nobody switches a socket at the wall); other lamps
+        switch on, so their wall switch works. Settings only; returns True for "previous"."""
         light_settings = self.settings.light_settings(ieee)
-        light_settings.power_on = "previous" if ieee == self.settings.wakeup.light else "on"
+        keep = ieee == self.settings.wakeup.light or not light_settings.caps.dimmable
+        light_settings.power_on = "previous" if keep else "on"
         return light_settings.power_on == "previous"
 
     async def _apply_power_on(self, ieee: str) -> None:
@@ -1278,6 +1308,8 @@ class Service:
     async def set_wakeup_light(self, ieee: str | None) -> None:
         if ieee is not None and not self.registry.is_lamp(ieee):
             raise SettingsError(f"{ieee} is not a lamp")
+        if ieee is not None and not self.registry.controller(ieee).caps.dimmable:
+            raise SettingsError("The wake-up lamp must be dimmable: a sunrise brightens it")
         previous = self.settings.wakeup.light
         if ieee == previous:
             return
@@ -1564,6 +1596,8 @@ class Service:
                     "initialized": found.initialized if found else False,
                     "paired": self.registry.paired(ieee),
                     "is_light": device.kind == "light",
+                    "dimmable": device.kind not in ("light", "fixture")
+                    or self.settings.light_settings(ieee).caps.dimmable,
                     "wakeup": ieee == self.settings.wakeup.light,
                     "members": list(device.members),
                     "fixture": self.registry.fixture_of(ieee),
@@ -1627,6 +1661,7 @@ async def serve(
     fake_sensors: int = 0,
     fake_remotes: int = 0,
     fake_dimmers: int = 0,
+    fake_plugs: int = 0,
 ) -> int:
     """Run until SIGTERM/SIGINT. Every startup failure returns an exit code, so that
     systemd can restart us: a process that hangs after an error never gets restarted."""
@@ -1640,6 +1675,7 @@ async def serve(
         fake_sensors=fake_sensors,
         fake_remotes=fake_remotes,
         fake_dimmers=fake_dimmers,
+        fake_plugs=fake_plugs,
     )
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

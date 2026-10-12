@@ -67,6 +67,13 @@ Each command goes to every bulb at once. The fixture counts as on if any of its 
 - **The wall buttons keep working** without the Pi: click to switch, hold to dim.
 - **If the lowest levels flicker,** raise the dimmer's minimum brightness on the device itself.
 
+**Smart plugs** (IKEA **TRETAKT**) make an ordinary lamp switchable. Kotivalo treats a plug as a lamp that only switches on and off:
+- **Pairing:** start pairing under **Laitteet → Lisää laite**, then hold the plug's small button for about 5 seconds until its light blinks.
+- **Its card** shows a plug icon. A tap switches it; there is no brightness to drag. ⚙ has the motion and "Vain käsin" settings.
+- **Everything else works as for other lamps:** motion sensors, remotes (on and off; "brighter" switches it on) and the master switch. It can't be the wake-up lamp, as a sunrise needs dimming.
+- **After a power cut** it goes back to how it was, so a cut at night doesn't light the lamp.
+- **The plugs also strengthen the Zigbee network:** being mains-powered, they relay messages for the devices around them.
+
 **Buying bulbs:** IKEA's **TRÅDFRI** smart bulbs (e.g. GU10 345 lm white spectrum) are Zigbee and work with the XStick. IKEA's newer **KAJPLATS** range is Matter over Thread, which the XStick can't use. Its Zigbee mode is unofficial and stripped down, so avoid it. Ordinary bulbs like **SOLHETTA** have no radio at all.
 
 ## All lamps at once

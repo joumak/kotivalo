@@ -13,6 +13,7 @@ export interface Caps {
   supports_ct: boolean
   min_mireds: number
   max_mireds: number
+  dimmable: boolean // false: on/off only (a smart plug)
 }
 
 export type Owner = 'off' | 'manual' | 'motion' | 'sunrise'
@@ -181,6 +182,7 @@ export interface DeviceInfo {
   initialized: boolean
   paired: boolean
   wakeup: boolean
+  dimmable: boolean // false for a smart plug (a lamp that only switches)
   members: string[] // a fixture's bulbs
   fixture: string | null // the fixture a bulb belongs to
   parent: string | null // the device a second (third...) channel is on

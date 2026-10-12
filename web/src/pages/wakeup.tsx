@@ -279,7 +279,9 @@ function SunriseSettings({ snapshot }: { snapshot: Snapshot }) {
             <SelectValue placeholder={t.wakeup.noLamp} />
           </SelectTrigger>
           <SelectContent>
-            {snapshot.lights.map((l) => (
+            {snapshot.lights
+              .filter((l) => l.caps.dimmable) // a sunrise has to dim
+              .map((l) => (
               <SelectItem key={l.ieee} value={l.ieee}>
                 {l.name}
               </SelectItem>

@@ -9,7 +9,7 @@ import { isLit, lampColor } from '@/lib/lamp-state'
 import { DEFAULT_KELVIN, kelvinToRgb, rgb } from '@/lib/light-color'
 import { useLiveValue } from '@/lib/use-live-value'
 
-/** Brightness and warmth, taking effect while dragging. */
+/** Brightness and warmth, taking effect while dragging (neither for a plug). */
 export function LampControls({ lamp }: { lamp: Lamp }) {
   const t = useT()
   const actions = useActions()
@@ -30,17 +30,19 @@ export function LampControls({ lamp }: { lamp: Lamp }) {
   const color = lit ? lampColor(lamp) : kelvinToRgb(warmth.value)
   return (
     <div className="flex flex-col gap-6">
-      <LightSlider
-        label={t.lamp.brightness}
-        valueText={brightness.value === 0 ? t.lamp.off : t.lamp.level(brightness.value)}
-        value={brightness.value}
-        min={1}
-        max={100}
-        track="var(--muted)"
-        fill={`linear-gradient(to right, ${rgb(color, 0.35)}, ${rgb(color)})`}
-        onChange={(v) => brightness.change(Math.max(1, v))}
-        onCommit={(v) => brightness.commit(Math.max(1, v))}
-      />
+      {lamp.caps.dimmable && (
+        <LightSlider
+          label={t.lamp.brightness}
+          valueText={brightness.value === 0 ? t.lamp.off : t.lamp.level(brightness.value)}
+          value={brightness.value}
+          min={1}
+          max={100}
+          track="var(--muted)"
+          fill={`linear-gradient(to right, ${rgb(color, 0.35)}, ${rgb(color)})`}
+          onChange={(v) => brightness.change(Math.max(1, v))}
+          onCommit={(v) => brightness.commit(Math.max(1, v))}
+        />
+      )}
       {lamp.caps.supports_ct && (
         <LightSlider
           label={t.lamp.warmth}

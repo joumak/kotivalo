@@ -224,6 +224,7 @@ async def test_a_lamp_sending_commands_is_not_a_remote(app):
 
 
 DIMMER = "a4:c1:38:00:11:22:33:44"
+PLUG = "8c:6f:b9:00:00:00:00:01"  # a TRETAKT smart plug
 DIMMER_NWK = 0x4D4D
 
 
@@ -239,6 +240,25 @@ def dimmer(app):
         ep.status = zigpy.endpoint.Status.ZDO_INIT
     device.status = zigpy.device.Status.ENDPOINTS_INIT
     return app
+
+
+def test_a_smart_plug_is_a_lamp_that_cannot_dim(app):
+    from kotivalo.zigbee import discovered
+
+    device = app.add_device(t.EUI64.convert(PLUG), 0x3A01)
+    ep = device.add_endpoint(1)
+    ep.profile_id = 0x0104
+    for cluster_id in (0x0000, 0x0003, 0x0004, 0x0005, OnOff.cluster_id):  # TRETAKT
+        ep.add_input_cluster(cluster_id)
+    ep.status = zigpy.endpoint.Status.ZDO_INIT
+    device.status = zigpy.device.Status.ENDPOINTS_INIT
+    found = discovered(device)
+    assert (found.kind, found.endpoint, found.endpoints, found.dimmable) == (
+        "light",
+        1,
+        (1,),
+        False,
+    )
 
 
 async def test_each_channel_of_a_dimmer_reports_as_its_own_lamp(dimmer):

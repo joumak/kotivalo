@@ -43,6 +43,7 @@ class Discovered:
     last_seen: float | None = None  # unix time
     initialized: bool = True
     endpoints: tuple[int, ...] = ()  # every light endpoint: a 2-channel dimmer has two
+    dimmable: bool = True  # False: a lamp that only switches (a smart plug)
 
 
 class Registry:
@@ -86,7 +87,9 @@ class Registry:
                         changed = True
             if item.kind == "light" and item.ieee not in self.settings.lights:
                 self.settings.lights[item.ieee] = LightSettings(
-                    caps=LightCaps(model=item.model, manufacturer=item.manufacturer)
+                    caps=LightCaps(
+                        model=item.model, manufacturer=item.manufacturer, dimmable=item.dimmable
+                    )
                 )
                 changed = True
             if item.kind == "light":
@@ -120,7 +123,9 @@ class Registry:
                 parent=item.ieee,
             )
             self.settings.lights[cid] = LightSettings(
-                caps=LightCaps(model=item.model, manufacturer=item.manufacturer)
+                caps=LightCaps(
+                    model=item.model, manufacturer=item.manufacturer, dimmable=item.dimmable
+                )
             )
             LOGGER.info("Device %s: channel %d is lamp %s", item.ieee, number, cid)
             changed = True

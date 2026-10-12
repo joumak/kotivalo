@@ -137,6 +137,7 @@ Everything else:
 ## Testing and verification
 
 - Test against `FakeLight` + `FakeClock`. `FakeClock.sleep*` advances time instantly.
+- **Touch gestures need real touch input** (`swipeCard` in `web/e2e/app.spec.ts`, Chromium's DevTools protocol). A mouse drag misses touch-only behaviour, such as a finger's implicit pointer capture.
 - Hardware checks go through the HTTP API (`curl` against `http://kotivalo.local:8080/api/...`).
   - The lamps may be in use: note every lamp's state (`/api/state`) before a test and restore it afterwards, along with the user's alarms and ramp settings.
   - Don't leave the light on at night.

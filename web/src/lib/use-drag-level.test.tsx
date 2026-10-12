@@ -43,7 +43,7 @@ function Card({ remote, send, onTap }: { remote: number; send: (v: number) => vo
   const { handlers } = useDragLevel(level, onTap)
   return (
     <button type="button" {...handlers}>
-      {level.value}
+      <span>{level.value}</span>
     </button>
   )
 }
@@ -116,6 +116,16 @@ describe('useDragLevel', () => {
     fireEvent.click(card)
     expect(send).not.toHaveBeenCalled()
     expect(onTap).not.toHaveBeenCalled()
+  })
+
+  it('keeps dragging when the text under a finger hands its capture to the card', () => {
+    const { card, send, down, move, up } = setup(40)
+    down(20)
+    move(32)
+    fireEvent.lostPointerCapture(card.firstElementChild!, { pointerId: 1 }) // bubbles up
+    move(132)
+    up()
+    expect(send).toHaveBeenLastCalledWith(90)
   })
 
   it('keeps what a cancelled drag had reached', () => {

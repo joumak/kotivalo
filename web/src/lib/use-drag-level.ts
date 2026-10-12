@@ -95,7 +95,11 @@ export function useDragLevel(level: LiveValue, onTap: () => void) {
     onPointerUp: (e: PointerEvent<HTMLElement>) => {
       if (drag.current && e.pointerId === drag.current.id) finish()
     },
-    onLostPointerCapture: () => finish(),
+    onLostPointerCapture: (e: PointerEvent<HTMLElement>) => {
+      // A finger is captured by the element it lands on (the card's text), and moving the
+      // capture to the card makes that element lose it: an event that bubbles up to here.
+      if (e.target === e.currentTarget) finish()
+    },
     onPointerCancel: () => {
       // The browser took the gesture (a scroll): no tap. A drag already under way keeps
       // the value the lamp has been sent.

@@ -48,6 +48,20 @@ async function dragCard(page: Page, name: string, from: number, to: number) {
   await page.mouse.up()
 }
 
+/** Swipes a finger over a lamp card, `from` and `to` as fractions of its size: real touch input
+ * (Chromium's DevTools protocol), so touch-action and the browser's own capture apply. */
+async function swipeCard(page: Page, name: string, from: [number, number], to: [number, number]) {
+  const box = (await page.getByRole('button', { name, exact: true }).boundingBox())!
+  const cdp = await page.context().newCDPSession(page)
+  const at = (fx: number, fy: number) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [at(...from)] })
+  for (let i = 1; i <= 12; i++) {
+    const point = at(from[0] + ((to[0] - from[0]) * i) / 12, from[1] + ((to[1] - from[1]) * i) / 12)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point] })
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+}
+
 test('a tap on a lamp card switches it, and the card follows', async ({ page, request }) => {
   await open(page, '#/lights')
   const card = page.getByRole('button', { name: 'Lukuvalo', exact: true })
@@ -61,6 +75,18 @@ test('dragging a card sideways sets the brightness without switching', async ({ 
   await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 64 } })
   await open(page, '#/lights')
   await dragCard(page, 'Lukuvalo', 0.05, 0.98)
+  await expect.poll(async () => (await lamp(request)).state.level).toBeGreaterThan(200)
+  expect((await lamp(request)).state.on).toBe(true)
+})
+
+test('a finger dragged sideways sets the brightness, one moved up or down does not', async ({ page, request, browserName }) => {
+  test.skip(browserName !== 'chromium', 'touch input through Chromium')
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 64 } })
+  await open(page, '#/lights')
+  await swipeCard(page, 'Lukuvalo', [0.5, 0.15], [0.55, 0.95]) // the page's gesture, not the lamp's
+  await page.waitForTimeout(500)
+  expect((await lamp(request)).state).toMatchObject({ on: true, level: 64 })
+  await swipeCard(page, 'Lukuvalo', [0.05, 0.5], [0.98, 0.55])
   await expect.poll(async () => (await lamp(request)).state.level).toBeGreaterThan(200)
   expect((await lamp(request)).state.on).toBe(true)
 })

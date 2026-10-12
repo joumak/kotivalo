@@ -16,7 +16,7 @@ export function useMediaQuery(query: string): boolean {
  * - phone: portrait phone; bottom tabs, lamp controls in a bottom drawer
  * - short: phone held sideways; side rail, controls in a side sheet
  * - tablet: portrait tablet; like the phone with more columns
- * - wide: landscape tablet; side rail, lamp grid with a control panel beside it
+ * - wide: landscape tablet or a desktop; side rail, controls in a side sheet
  */
 export type Layout = 'phone' | 'short' | 'tablet' | 'wide'
 

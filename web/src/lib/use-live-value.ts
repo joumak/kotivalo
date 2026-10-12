@@ -11,10 +11,14 @@ const HOLD_AFTER_COMMIT_MS = 1500
  * - While dragging, and briefly after, it ignores pushed state from the server,
  *   so the slider never jumps back to an older value.
  */
-export function useLiveValue(
-  remote: number,
-  send: (value: number) => void,
-): { value: number; change: (value: number) => void; commit: (value: number) => void } {
+export interface LiveValue {
+  value: number
+  change: (value: number) => void
+  commit: (value: number) => void
+  reset: () => void
+}
+
+export function useLiveValue(remote: number, send: (value: number) => void): LiveValue {
   const [local, setLocal] = useState<number | null>(null)
   const lastSent = useRef(0)
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -52,5 +56,12 @@ export function useLiveValue(
     [send],
   )
 
-  return { value: local ?? remote, change, commit }
+  /** Back to the server's value now, dropping anything not yet sent (e.g. after a tap). */
+  const reset = useCallback(() => {
+    if (pending.current) clearTimeout(pending.current)
+    if (release.current) clearTimeout(release.current)
+    setLocal(null)
+  }, [])
+
+  return { value: local ?? remote, change, commit, reset }
 }

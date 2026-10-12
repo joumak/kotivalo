@@ -41,4 +41,15 @@ describe('useLiveValue', () => {
     rerender()
     expect(result.current.value).toBe(55)
   })
+
+  it('resets to the pushed value and drops an unsent one', () => {
+    const send = vi.fn()
+    const { result } = renderHook(() => useLiveValue(10, send))
+    act(() => result.current.commit(20)) // just sent: a send soon after waits its turn
+    act(() => result.current.change(60))
+    act(() => result.current.reset())
+    expect(result.current.value).toBe(10)
+    act(() => vi.advanceTimersByTime(1000))
+    expect(send).toHaveBeenLastCalledWith(20) // 60 never went out
+  })
 })

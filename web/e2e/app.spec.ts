@@ -38,18 +38,46 @@ async function open(page: Page, hash = '', storage: Record<string, string> = {})
 
 test.beforeEach(async ({ request }) => reset(request))
 
-test('switches a lamp on from its tile, and the tile follows', async ({ page, request }) => {
+/** Drags the mouse sideways across a lamp card, from `from` to `to` (0..1 of its width). */
+async function dragCard(page: Page, name: string, from: number, to: number) {
+  const box = (await page.getByRole('button', { name, exact: true }).boundingBox())!
+  const y = box.y + box.height / 2
+  await page.mouse.move(box.x + box.width * from, y)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * to, y, { steps: 12 })
+  await page.mouse.up()
+}
+
+test('a tap on a lamp card switches it, and the card follows', async ({ page, request }) => {
   await open(page, '#/lights')
-  const power = page.getByRole('button', { name: 'Sytytä Lukuvalo' })
-  await power.click()
-  await expect(page.getByRole('button', { name: 'Sammuta Lukuvalo' })).toHaveAttribute('aria-pressed', 'true')
+  const card = page.getByRole('button', { name: 'Lukuvalo', exact: true })
+  await expect(card).toHaveAttribute('aria-pressed', 'false')
+  await card.click()
+  await expect(card).toHaveAttribute('aria-pressed', 'true')
   expect((await lamp(request)).state.on).toBe(true)
+})
+
+test('dragging a card sideways sets the brightness without switching', async ({ page, request }) => {
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 64 } })
+  await open(page, '#/lights')
+  await dragCard(page, 'Lukuvalo', 0.05, 0.98)
+  await expect.poll(async () => (await lamp(request)).state.level).toBeGreaterThan(200)
+  expect((await lamp(request)).state.on).toBe(true)
+})
+
+test('dragging an off lamp right switches it on, left keeps it off', async ({ page, request }) => {
+  await open(page, '#/lights')
+  await dragCard(page, 'Lukuvalo', 0.95, 0.05)
+  await page.waitForTimeout(500)
+  expect((await lamp(request)).state.on).toBe(false)
+  await dragCard(page, 'Lukuvalo', 0.05, 0.6)
+  await expect.poll(async () => (await lamp(request)).state.on).toBe(true)
 })
 
 test('changes brightness while the slider moves', async ({ page, request }) => {
   await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 127 } })
   await open(page, '#/lights')
-  await page.getByRole('button', { name: 'Lukuvalo', exact: true }).click()
+  await page.getByRole('button', { name: 'Lukuvalo: säädöt' }).click()
   const slider = page.getByRole('slider', { name: 'Kirkkaus' })
   await slider.focus()
   for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight')
@@ -85,7 +113,20 @@ test('wall panel at night: the first touch only wakes the screen', async ({ page
   await expect(wake).toBeVisible()
   await expect(wake.getByText(/^Sää nyt: /)).toBeAttached() // the weather, dimmed, at night too
   await wake.click()
-  await expect(page.getByRole('button', { name: /^Lukuvalo/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Lukuvalo', exact: true })).toBeVisible()
+  for (const l of (await state(request)).lights) expect(l.state.on).toBe(false) // nothing switched
+})
+
+test('the wall panel opens a lamp\'s controls from its card', async ({ page, request }) => {
+  const hhmm = (d: Date) => d.toTimeString().slice(0, 5)
+  const now = Date.now()
+  await request.put('/api/night', {
+    data: { start: hhmm(new Date(now + 2 * 3600e3)), end: hhmm(new Date(now + 3 * 3600e3)) },
+  }) // daytime on the panel, whenever the test runs
+  await open(page, '', { 'kotivalo-panel': '1' })
+  await page.getByRole('button', { name: 'Lukuvalo: säädöt' }).click()
+  await expect(page.getByRole('slider', { name: 'Kirkkaus' })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'Sytytä Lukuvalo' })).toBeVisible()
   for (const l of (await state(request)).lights) expect(l.state.on).toBe(false) // nothing switched
 })
 
@@ -102,7 +143,7 @@ test('gives a lamp switched on by hand back to its motion sensor', async ({ page
   await request.put(`/api/motion/${SENSOR}`, { data: { lights: [LAMP] } })
   await request.post(`/api/lights/${LAMP}`, { data: { action: 'on' } })
   await open(page, '#/lights')
-  await page.getByRole('button', { name: 'Lukuvalo', exact: true }).click()
+  await page.getByRole('button', { name: 'Lukuvalo: säädöt' }).click()
   await expect(page.getByText('Sytytetty käsin, liiketunnistin ei ohjaa')).toBeVisible()
   await page.getByRole('button', { name: 'Palauta liikeohjaus' }).click()
   await expect(page.getByText('Liiketunnistin ohjaa tätä valoa')).toBeVisible()
@@ -158,7 +199,7 @@ test('hand only keeps motion away from a lamp until released', async ({ page, re
   await request.put(`/api/motion/${SENSOR}`, { data: { lights: [LAMP], dark_lux: null } })
   await request.post('/api/fake/event', { data: { type: 'motion', ieee: SENSOR, value: false } })
   await open(page, '#/lights')
-  await page.getByRole('button', { name: 'Lukuvalo', exact: true }).click()
+  await page.getByRole('button', { name: 'Lukuvalo: säädöt' }).click()
   await page.getByRole('switch', { name: 'Vain käsin' }).click()
   await expect.poll(async () => (await lamp(request)).hand_only).toBe(true)
   await expect(page.getByText('Vain käsin, pois').first()).toBeVisible()
@@ -182,7 +223,7 @@ test('bulbs grouped into a fixture act as one lamp', async ({ page, request }) =
   await page.evaluate(() => (window.location.hash = '#/lights'))
   await expect(page.getByRole('button', { name: 'Lattiavalo', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Lukuvalo', exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Sytytä Lattiavalo' }).click()
+  await page.getByRole('button', { name: 'Lattiavalo', exact: true }).click()
   const fixture = async () =>
     (await state(request)).lights.find((l: { name: string }) => l.name === 'Lattiavalo')
   await expect.poll(async () => (await fixture()).state.on).toBe(true)
@@ -196,7 +237,7 @@ test('each channel of a two-gang dimmer is a lamp of its own', async ({ page, re
   await open(page, '#/devices')
   await expect(page.getByText('Kanava 2').first()).toBeVisible()
   await page.evaluate(() => (window.location.hash = '#/lights'))
-  await page.getByRole('button', { name: 'Sytytä Fake dimmer 00d1 (2)' }).click()
+  await page.getByRole('button', { name: 'Fake dimmer 00d1 (2)', exact: true }).click()
   await expect.poll(async () => (await lamp(request, `${dimmer}-2`)).state.on).toBe(true)
   expect((await lamp(request, dimmer)).state.on).not.toBe(true) // channel 1 untouched
   await request.post(`/api/lights/${dimmer}-2`, { data: { action: 'off' } })

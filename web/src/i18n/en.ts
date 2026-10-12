@@ -62,7 +62,9 @@ export const en = {
     wakeupLamp: 'Wake-up lamp',
     noRoom: 'Other lamps',
     noLamps: 'No lamps yet. Add one under Devices.',
-    pickOne: 'Pick a lamp to adjust it.',
+    controls: (name: string) => `${name}: controls`,
+    cardHint: 'Tap to switch it on or off. Drag sideways, or use the arrow keys, to change the brightness.',
+    close: 'Close',
   },
   wakeup: {
     noAlarm: 'No alarm set. Pick the days below.',

@@ -59,7 +59,9 @@ export const fi: Messages = {
     wakeupLamp: 'Herätysvalo',
     noRoom: 'Muut valot',
     noLamps: 'Ei vielä valoja. Lisää valo Laitteet-sivulla.',
-    pickOne: 'Valitse säädettävä valo.',
+    controls: (name: string) => `${name}: säädöt`,
+    cardHint: 'Sytytä tai sammuta napauttamalla. Säädä kirkkautta vetämällä sivuttain tai nuolinäppäimillä.',
+    close: 'Sulje',
   },
   wakeup: {
     noAlarm: 'Ei herätyksiä. Valitse päivät alta.',

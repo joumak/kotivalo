@@ -6,7 +6,7 @@ import type { Tab } from '@/components/shell'
 import { Toaster } from '@/components/ui/sonner'
 import { LangProvider, useT } from '@/i18n'
 import { useLayout } from '@/lib/layout'
-import { usePanelMode, useTheme } from '@/lib/screen'
+import { useIdle, usePanelMode, useTheme } from '@/lib/screen'
 import { LightsPage } from '@/pages/lights'
 import { PanelDashboard } from '@/pages/panel'
 
@@ -30,25 +30,6 @@ function useHashTab(): [Tab, (tab: Tab) => void] {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   return [tab, (next) => (window.location.hash = `/${next}`)]
-}
-
-/** Calls `onIdle` after `ms` without a touch, click or key press (while `active`). */
-function useIdle(active: boolean, ms: number, onIdle: () => void) {
-  useEffect(() => {
-    if (!active) return
-    let timer = setTimeout(onIdle, ms)
-    const reset = () => {
-      clearTimeout(timer)
-      timer = setTimeout(onIdle, ms)
-    }
-    window.addEventListener('pointerdown', reset)
-    window.addEventListener('keydown', reset)
-    return () => {
-      clearTimeout(timer)
-      window.removeEventListener('pointerdown', reset)
-      window.removeEventListener('keydown', reset)
-    }
-  }, [active, ms, onIdle])
 }
 
 function Root() {

@@ -1,4 +1,5 @@
-// Screenshots of every page at the four layouts, plus the wall panel by day and night.
+// Screenshots of every page at the four layouts and two desktop sizes, the wall panel by day and
+// night, and a lamp's controls (drawer, side sheet, on the panel).
 //   1. kotivalo --state-dir <tmp> serve --fake --fake-lamps 6 --fake-sensors 1 --host 127.0.0.1 --port 8099
 //   2. node scripts/screenshots.mjs [out-dir] [base-url]
 import { chromium } from '@playwright/test'
@@ -13,6 +14,8 @@ const VIEWPORTS = {
   'phone-landscape': { viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 },
   'tablet-portrait': { viewport: { width: 820, height: 1180 }, hasTouch: true },
   'tablet-landscape': { viewport: { width: 1180, height: 820 }, hasTouch: true },
+  'desktop-1080': { viewport: { width: 1920, height: 1080 } },
+  'desktop-1440': { viewport: { width: 2560, height: 1440 } },
 }
 
 async function call(method, path, body) {
@@ -32,7 +35,7 @@ const LAMPS = [
   ['01', 'Lattiavalo', 'Olohuone', [170, 2700]],
   ['02', 'Makuuhuoneen paneeli', 'Makuuhuone', null],
   ['03', 'Kattospotit', 'Olohuone', [80, 2200]],
-  ['04', 'Lukuvalo', 'Olohuone', null],
+  ['04', 'Lukuvalo', 'Olohuone', [120, 3500]],
   ['05', 'Keittiön paneeli', 'Keittiö', [254, 4000]],
   ['06', 'Eteinen', 'Eteinen', null],
 ]
@@ -67,8 +70,8 @@ async function seed({ nightNow }) {
 }
 
 const browser = await chromium.launch()
-async function shoot(name, viewport, { hash = '', panel = false, lang = 'fi', before } = {}) {
-  const context = await browser.newContext({ ...viewport, locale: lang === 'fi' ? 'fi-FI' : 'en-GB', colorScheme: 'dark' })
+async function shoot(name, viewport, { hash = '', panel = false, lang = 'fi', scheme = 'dark', before } = {}) {
+  const context = await browser.newContext({ ...viewport, locale: lang === 'fi' ? 'fi-FI' : 'en-GB', colorScheme: scheme })
   await context.addInitScript(
     ([panelMode, language]) => {
       localStorage.setItem('kotivalo-lang', language)
@@ -90,10 +93,11 @@ for (const [layout, viewport] of Object.entries(VIEWPORTS)) {
     await shoot(`${layout}-${tab}`, viewport, { hash: `#/${tab}` })
   }
 }
-await shoot('phone-portrait-lamp-drawer', VIEWPORTS['phone-portrait'], {
-  hash: '#/lights',
-  before: (page) => page.getByRole('button', { name: 'Lattiavalo' }).first().click().then(() => page.waitForTimeout(600)),
-})
+const openControls = (page) =>
+  page.getByRole('button', { name: 'Lattiavalo: säädöt' }).click().then(() => page.waitForTimeout(600))
+await shoot('phone-portrait-lamp-drawer', VIEWPORTS['phone-portrait'], { hash: '#/lights', before: openControls })
+await shoot('tablet-landscape-lamp-sheet', VIEWPORTS['tablet-landscape'], { hash: '#/lights', before: openControls })
+await shoot('phone-portrait-lights-light', VIEWPORTS['phone-portrait'], { hash: '#/lights', scheme: 'light' })
 await shoot('phone-portrait-motion-dialog', VIEWPORTS['phone-portrait'], {
   hash: '#/devices',
   before: (page) =>
@@ -106,6 +110,9 @@ await shoot('phone-portrait-add-device', VIEWPORTS['phone-portrait'], {
 await shoot('phone-portrait-wakeup-en', VIEWPORTS['phone-portrait'], { hash: '#/wakeup', lang: 'en' })
 await shoot('panel-day-landscape', VIEWPORTS['tablet-landscape'], { panel: true })
 await shoot('panel-day-portrait', VIEWPORTS['tablet-portrait'], { panel: true })
+await shoot('panel-day-desktop-1080', VIEWPORTS['desktop-1080'], { panel: true })
+await shoot('panel-day-desktop-1440', VIEWPORTS['desktop-1440'], { panel: true })
+await shoot('panel-lamp-sheet', VIEWPORTS['tablet-landscape'], { panel: true, before: openControls })
 await seed({ nightNow: true })
 await shoot('panel-night', VIEWPORTS['tablet-landscape'], { panel: true })
 await browser.close()

@@ -1,10 +1,8 @@
-import type { CSSProperties } from 'react'
-
 import type { Lamp, Snapshot } from '@/api/types'
 import type { Messages } from '@/i18n/en'
 
 import { formatTime, levelPercent } from './format'
-import { DEFAULT_KELVIN, glowStrength, kelvinToRgb, rgb } from './light-color'
+import { DEFAULT_KELVIN, kelvinToRgb } from './light-color'
 
 export function lampColor(lamp: Lamp): [number, number, number] {
   const kelvin = lamp.caps.supports_ct ? (lamp.state.kelvin ?? DEFAULT_KELVIN) : DEFAULT_KELVIN
@@ -58,17 +56,6 @@ export function motionMode(lamp: Lamp): 'motion' | 'byHand' | 'waits' | null {
   if (!lamp.has_motion || lamp.owner === 'sunrise' || lamp.hand_only) return null
   if (lamp.owner === 'manual') return 'byHand'
   return lamp.owner === 'off' && lamp.motion_paused ? 'waits' : 'motion'
-}
-
-/** The lamp's own light as a glow: hue from its colour temperature, strength from its level. */
-export function glowStyle(lamp: Lamp, scale = 1): CSSProperties {
-  if (!isLit(lamp)) return {}
-  const color = lampColor(lamp)
-  const strength = glowStrength(lamp.state.level) * scale
-  return {
-    backgroundImage: `radial-gradient(120% 100% at 15% 0%, ${rgb(color, 0.55 * strength)} 0%, ${rgb(color, 0.12 * strength)} 55%, transparent 80%)`,
-    boxShadow: `0 0 ${Math.round(40 * strength)}px ${rgb(color, 0.18 * strength)}`,
-  }
 }
 
 /** The motion sensor whose rule switches this lamp, if any. */

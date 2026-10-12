@@ -17,7 +17,8 @@ interface ShellProps {
   children: ReactNode
 }
 
-/** Navigation (bottom tabs, or a side rail when height is short or the screen is wide) and banners. */
+/** Navigation (bottom tabs, or a side rail when height is short or the screen is wide) and banners.
+ * On a desktop, rail and content form one centred column of tablet width. */
 export function Shell({ tab, onTab, onBackToPanel, children }: ShellProps) {
   const t = useT()
   const layout = useLayout()
@@ -46,7 +47,7 @@ export function Shell({ tab, onTab, onBackToPanel, children }: ShellProps) {
   })
 
   return (
-    <div className={cn('min-h-dvh', rail && 'flex')}>
+    <div className={cn('mx-auto min-h-dvh max-w-7xl', rail && 'flex')}>
       {rail ? (
         <nav className="sticky top-0 flex h-dvh w-24 shrink-0 flex-col gap-1 border-r bg-card/60 px-2 py-4">
           {items}

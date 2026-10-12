@@ -1,25 +1,24 @@
-import { Activity, Hand, Menu, Sunrise } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent, PointerEvent } from 'react'
+import { Menu, Sunrise } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
 import { useActions } from '@/api/actions'
 import { useLive } from '@/api/live'
-import type { Lamp, Snapshot } from '@/api/types'
+import type { Snapshot } from '@/api/types'
+import { LampCard } from '@/components/lamp-card'
+import { LampSheet, useLampSheet } from '@/components/lamp-sheet'
 import { SunriseBand } from '@/components/sunrise-band'
 import { Button } from '@/components/ui/button'
 import { MasterSwitch } from '@/components/master-switch'
 import { WeatherLine } from '@/components/weather-line'
 import { useT } from '@/i18n'
-import { formatTime, levelPercent, percentToLevel, weekdayName } from '@/lib/format'
-import { glowStrength, rgb } from '@/lib/light-color'
-import { isLit, lampColor, lampStatus, sensorFor } from '@/lib/lamp-state'
+import { formatTime, weekdayName } from '@/lib/format'
 import { isNight } from '@/lib/night'
 import { byRoom } from '@/lib/rooms'
-import { useNow } from '@/lib/screen'
-import { useLiveValue } from '@/lib/use-live-value'
+import { useIdle, useNow } from '@/lib/screen'
 import { cn } from '@/lib/utils'
 
 const NIGHT_AWAKE_MS = 60_000 // after a touch at night, show the lamps this long
+const SHEET_IDLE_MS = 60_000 // a lamp's controls left open close by themselves
 
 /** Moves fixed content a few pixels each minute so a screen left on doesn't burn in. */
 function burnInShift(now: Date, range: number): { x: number; y: number } {
@@ -33,31 +32,41 @@ export function PanelDashboard({ onMenu }: { onMenu: () => void }) {
   const { snapshot } = useLive()
   const now = useNow(1000)
   const [awakeUntil, setAwakeUntil] = useState(0)
+  const sheet = useLampSheet()
+  useIdle(sheet.open, SHEET_IDLE_MS, sheet.close)
   if (!snapshot) return <div className="h-dvh bg-black" />
 
   const night = isNight(now, snapshot)
-  if (night && now.getTime() >= awakeUntil) {
-    return <NightScreen snapshot={snapshot} now={now} onWake={() => setAwakeUntil(Date.now() + NIGHT_AWAKE_MS)} />
-  }
+  const asleep = night && now.getTime() >= awakeUntil
   const shift = burnInShift(now, 3)
   return (
-    <div
-      className={cn('h-dvh overflow-hidden bg-background', night && 'opacity-75')}
-      onPointerDown={() => night && setAwakeUntil(Date.now() + NIGHT_AWAKE_MS)}
-    >
-      <div
-        className="grid h-full gap-8 p-[max(1.5rem,env(safe-area-inset-top))] landscape:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] portrait:grid-rows-[auto_1fr]"
-        style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
-      >
-        <ClockColumn snapshot={snapshot} now={now} onMenu={onMenu} night={night} />
-        <div className="flex min-h-0 flex-col gap-4">
-          <MasterSwitch snapshot={snapshot} size="lg" className="self-end" />
-          <div className="min-h-0 grow overflow-y-auto">
-            <LampGrid snapshot={snapshot} />
+    <>
+      {asleep ? (
+        <NightScreen snapshot={snapshot} now={now} onWake={() => setAwakeUntil(Date.now() + NIGHT_AWAKE_MS)} />
+      ) : (
+        <div
+          className={cn('flex h-dvh items-center justify-center overflow-hidden overscroll-none bg-background', night && 'opacity-75')}
+          onPointerDown={() => night && setAwakeUntil(Date.now() + NIGHT_AWAKE_MS)} // at night, touches keep it showing
+        >
+          <div
+            className="grid h-full max-h-[64rem] w-full max-w-[100rem] gap-8 p-[max(1.5rem,env(safe-area-inset-top))] landscape:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] portrait:grid-rows-[auto_1fr]"
+            style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}
+          >
+            <ClockColumn snapshot={snapshot} now={now} onMenu={onMenu} night={night} />
+            <div className="flex min-h-0 flex-col gap-4">
+              <MasterSwitch snapshot={snapshot} size="lg" className="self-end" />
+              <div className="min-h-0 grow overflow-y-auto overscroll-contain">
+                <LampGrid snapshot={snapshot} onControls={sheet.show} />
+              </div>
+            </div>
           </div>
         </div>
+      )}
+      {/* A React parent of the sheet's portal: touches inside the sheet count too. */}
+      <div onPointerDown={() => night && setAwakeUntil(Date.now() + NIGHT_AWAKE_MS)}>
+        <LampSheet snapshot={snapshot} sheet={{ ...sheet, open: sheet.open && !asleep }} />
       </div>
-    </div>
+    </>
   )
 }
 
@@ -77,7 +86,7 @@ function ClockColumn({ snapshot, now, onMenu, night }: { snapshot: Snapshot; now
           <p
             className={cn(
               'leading-[0.85] font-medium tracking-tighter tabular-nums',
-              'text-[clamp(5.5rem,17vw,14rem)] portrait:text-[clamp(5.5rem,24vw,13rem)]',
+              'text-[clamp(5.5rem,min(17vw,30vh),14rem)] portrait:text-[clamp(5.5rem,24vw,13rem)]',
               night && 'text-ember',
             )}
           >
@@ -126,113 +135,23 @@ function ClockColumn({ snapshot, now, onMenu, night }: { snapshot: Snapshot; now
 }
 
 /** Every lamp visible at once (no scrolling on a wall): one grid that fills the column. */
-function LampGrid({ snapshot }: { snapshot: Snapshot }) {
+function LampGrid({ snapshot, onControls }: { snapshot: Snapshot; onControls: (ieee: string, opener: HTMLElement) => void }) {
   const t = useT()
   const lamps = byRoom(snapshot.lights, t.lamp.noRoom).flatMap(([room, list]) =>
     list.map((lamp) => ({ room, lamp })),
   )
   return (
-    <div className="grid h-full auto-rows-[minmax(8.5rem,1fr)] grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4">
+    <div className="grid h-full auto-rows-[minmax(8.5rem,1fr)] grid-cols-[repeat(auto-fit,minmax(min(100%,13rem),1fr))] gap-4">
       {lamps.map(({ room, lamp }) => (
-        <PanelTile key={lamp.ieee} lamp={lamp} room={room} snapshot={snapshot} />
-      ))}
-    </div>
-  )
-}
-
-/**
- * A large lamp tile: tap to switch, press and drag up or down to set brightness.
- * The tile fills from the bottom with the lamp's own light.
- */
-function PanelTile({ lamp, room, snapshot }: { lamp: Lamp; room: string; snapshot: Snapshot }) {
-  const t = useT()
-  const actions = useActions()
-  const ieee = lamp.ieee
-  const lit = isLit(lamp)
-  const send = useCallback((percent: number) => void actions.lamp(ieee, 'level', percentToLevel(percent)), [actions, ieee])
-  const level = useLiveValue(lit ? levelPercent(lamp.state.level) : 0, send)
-  const drag = useRef<{ y: number; start: number; height: number; moved: boolean } | null>(null)
-  const color = lampColor(lamp)
-  const sensor = sensorFor(lamp, snapshot)
-  const strength = glowStrength(lit ? percentToLevel(level.value) : 0)
-
-  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    event.currentTarget.setPointerCapture(event.pointerId)
-    const height = event.currentTarget.getBoundingClientRect().height
-    drag.current = { y: event.clientY, start: level.value, height, moved: false }
-  }
-  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const d = drag.current
-    if (!d) return
-    const dy = d.y - event.clientY
-    if (!d.moved && Math.abs(dy) < 10) return
-    d.moved = true
-    level.change(Math.round(Math.min(100, Math.max(1, d.start + (dy / d.height) * 100))))
-  }
-  const onPointerUp = () => {
-    const d = drag.current
-    drag.current = null
-    if (!d) return
-    if (d.moved) level.commit(Math.max(1, level.value))
-    else void actions.lamp(ieee, 'toggle')
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      void actions.lamp(ieee, 'toggle')
-    } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-      event.preventDefault()
-      level.commit(Math.min(100, Math.max(1, level.value + (event.key === 'ArrowUp' ? 10 : -10))))
-    }
-  }
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={lit}
-      aria-label={`${lamp.name}, ${lampStatus(lamp, snapshot, t)}`}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={() => (drag.current = null)}
-      onKeyDown={onKeyDown}
-      className={cn(
-        'relative flex touch-none flex-col justify-between overflow-hidden rounded-3xl border bg-card p-5 select-none',
-        'focus-visible:ring-4 focus-visible:ring-ring/60 focus-visible:outline-none',
-        lamp.error && 'border-dashed',
-      )}
-      style={lit ? { boxShadow: `0 0 ${Math.round(48 * strength)}px ${rgb(color, 0.2 * strength)}` } : undefined}
-    >
-      {lit && (
-        <div
-          aria-hidden
-          className="absolute inset-x-0 bottom-0 transition-[height] duration-150"
-          style={{
-            height: `${level.value}%`,
-            background: `linear-gradient(to top, ${rgb(color, 0.75 * strength + 0.15)}, ${rgb(color, 0.25 * strength)})`,
-          }}
+        <LampCard
+          key={lamp.ieee}
+          lamp={lamp}
+          snapshot={snapshot}
+          room={room}
+          size="panel"
+          onControls={(opener) => onControls(lamp.ieee, opener)}
         />
-      )}
-      <span className="relative flex flex-col gap-0.5">
-        <span className={cn('flex items-center gap-2 text-sm', lit && level.value > 80 ? 'text-black/60' : 'text-muted-foreground')}>
-          {room}
-          {lamp.hand_only ? (
-            <Hand className="size-4" aria-label={t.lamp.handOnly} />
-          ) : (
-            sensor && (
-              <Activity
-                className={cn('size-4', sensor.occupied && 'text-ember')}
-                aria-label={sensor.occupied ? t.sensor.occupied : t.sensor.empty}
-              />
-            )
-          )}
-        </span>
-        <span className="text-xl leading-tight font-medium text-balance">{lamp.name}</span>
-      </span>
-      <span className={cn('relative text-lg tabular-nums', lit && level.value > 45 ? 'text-black/75' : 'text-muted-foreground')}>
-        {lampStatus(lamp, snapshot, t)}
-      </span>
+      ))}
     </div>
   )
 }

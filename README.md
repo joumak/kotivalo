@@ -3,7 +3,7 @@
 Home lighting control for IKEA Zigbee lights, running on a Raspberry Pi. The name is
 Finnish: *koti* (home) + *valo* (light).
 
-- **Lamps:** switch, dim and set the warmth of every lamp from a phone or a wall panel. Sliders take effect while you drag.
+- **Lamps:** switch, dim and set the warmth of every lamp from a phone or a wall panel. Each lamp is a card that works the same everywhere: **tap** it to switch, **drag sideways** to set the brightness, and **⚙** opens its warmth, "Vain käsin" and motion settings. Changes take effect while you drag.
 - **Wake-up light:** before each alarm the wake-up lamp fades in from a dim warm glow to full, cooler white.
 - **Motion lighting:** an IKEA VALLHORN sensor switches lamps on when it's dark, with a dim night light at night, and off when the room has been empty for a while.
 - **Remotes:** IKEA remotes control the lamps you choose, through the Pi.
@@ -40,14 +40,14 @@ Every lamp has one owner at a time. The lamp's status line in the UI says which:
 
 **"Vain käsin" ("Hand only")**, a switch in the lamp's controls, makes a lamp yours until you switch it off:
 - Motion and its timers leave it alone, both on and off, however long the room has been empty or still.
-- A hand icon on its tile and "Vain käsin" in its status line show it's on.
+- A hand icon on its card and "Vain käsin" in its status line show it's on.
 - Switching it off, or "Palauta liikeohjaus", hands the lamp back to its sensor.
 - An alarm still lights the wake-up lamp, and that ends "Hand only".
 - The master switch still includes it.
 
 **Switching a lamp off by hand pauses motion** ("Pois, liike tauolla") until the room has been empty for the set time. You can switch the light off and walk out without it coming back on.
 
-**To hand a lamp back to its motion sensor,** open the lamp and tap **Palauta liikeohjaus** ("Let motion control it"):
+**To hand a lamp back to its motion sensor,** tap ⚙ on its card, then **Palauta liikeohjaus** ("Let motion control it"):
 - a lit lamp then switches off when the room has been empty for the set time
 - an off lamp comes on straight away if you're in the room and it's dark
 
@@ -55,7 +55,7 @@ Every lamp has one owner at a time. The lamp's status line in the UI says which:
 
 ## Fixtures: several bulbs as one lamp
 
-A lamp with several smart bulbs, like a fitting with GU10 spots, works best as a **fixture** (*valaisin*). Its bulbs then act as one lamp: one tile and one set of sliders. Motion rules, remotes, the wake-up lamp, "Hand only" and the master switch all treat it like any other lamp.
+A lamp with several smart bulbs, like a fitting with GU10 spots, works best as a **fixture** (*valaisin*). Its bulbs then act as one lamp: one card and one set of sliders. Motion rules, remotes, the wake-up lamp, "Hand only" and the master switch all treat it like any other lamp.
 
 1. Pair the bulbs: switch the lamp off and on 6 times. All its spots reset together and join while pairing is open.
 2. Under **Laitteet → Valot**, tap **Yhdistä valaisimeksi** ("Group into a fixture"), give it a name and room, and choose its bulbs.
@@ -165,7 +165,7 @@ Set the place under **Asetukset → Sää**: search for your town, or type its c
 On a tablet mounted on a wall or by the bed, open the UI and switch on **Asetukset → Tämä näyttö on seinäpaneeli** ("This screen is a wall panel"). The setting applies to that screen only.
 
 - The panel shows a large clock, the weather, the next alarm (with skip) and the lamps.
-- **Tap** a lamp tile to switch it. **Press and drag** up or down to set its brightness.
+- The lamp cards work as everywhere else: **tap** to switch, **drag sideways** to set the brightness, **⚙** for the rest. The controls close by themselves after a minute untouched.
 - **At night** the screen is almost black with a dim amber clock, the next alarm and the weather, all drifting a little to prevent burn-in. The first touch only wakes the screen, so it never switches a lamp by accident.
 - The menu button opens the full app. After 3 minutes untouched, the panel returns to its dashboard.
 

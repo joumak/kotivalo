@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 // Per-screen preferences, kept in this browser only.
 const PANEL_KEY = 'kotivalo-panel'
@@ -56,4 +56,29 @@ export function useNow(everyMs = 1000): Date {
     return () => clearInterval(timer)
   }, [everyMs])
   return now
+}
+
+/** Calls `onIdle` after `ms` without a touch, click or key press (while `active`). */
+export function useIdle(active: boolean, ms: number, onIdle: () => void) {
+  // In a ref: a new callback on every render (every live update) must not restart the timer.
+  const callback = useRef(onIdle)
+  useEffect(() => {
+    callback.current = onIdle
+  })
+  useEffect(() => {
+    if (!active) return
+    const fire = () => callback.current()
+    let timer = setTimeout(fire, ms)
+    const reset = () => {
+      clearTimeout(timer)
+      timer = setTimeout(fire, ms)
+    }
+    window.addEventListener('pointerdown', reset)
+    window.addEventListener('keydown', reset)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('pointerdown', reset)
+      window.removeEventListener('keydown', reset)
+    }
+  }, [active, ms])
 }

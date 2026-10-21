@@ -193,6 +193,33 @@ async def test_live_updates_arrive_over_server_sent_events(client):
     rsp.close()
 
 
+async def test_a_vanished_viewer_ends_its_stream_quietly(client, monkeypatch, caplog):
+    """A phone asleep: its connection times out, and the next write fails."""
+    from aiohttp import web
+
+    write = web.StreamResponse.write
+    writes = []
+
+    async def failing_write(self, data):
+        writes.append(data)
+        if len(writes) > 1:
+            raise ConnectionError("Connection lost")
+        await write(self, data)
+
+    monkeypatch.setattr(web.StreamResponse, "write", failing_write)
+    rsp = await client.get("/api/events")
+    assert (await read_event(rsp))["lights"]
+    await client.post(f"/api/lights/{LAMP_2}", json={"action": "level", "value": 77})
+    for _ in range(50):
+        if len(writes) > 1:
+            break
+        await asyncio.sleep(0.05)
+    await asyncio.sleep(0.1)
+    rsp.close()
+    assert len(writes) > 1
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+
 async def test_event_stream_takes_the_token_as_a_query_parameter(client):
     client.service.settings.web_token = "secret"
     assert (await client.get("/api/events")).status == 401

@@ -88,7 +88,9 @@ async def events(request: web.Request) -> web.StreamResponse:
     async def send_state() -> None:
         await response.write(f"data: {json.dumps(service.snapshot())}\n\n".encode())
 
-    with contextlib.suppress(ConnectionResetError, asyncio.CancelledError):
+    # A viewer gone without closing (a phone asleep: the TCP connection times out) shows
+    # up as a ConnectionError on the next write. The stream just ends.
+    with contextlib.suppress(ConnectionError, asyncio.CancelledError):
         await send_state()
         while not service.stopped.is_set():
             if await service.wait_change(SSE_KEEPALIVE_S):

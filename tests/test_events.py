@@ -173,3 +173,33 @@ async def test_fake_mode_has_no_radio(service):
     radio = service.snapshot()["radio"]
     assert radio["fake"] is True
     assert radio["model"] is None and radio["started"] is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "interviewed", "set_up"),
+    [
+        ("joined", True, True),  # re-paired, still in zigpy's database: no new interview
+        ("joined", False, False),  # new to the database (a new radio): wait for the interview
+        ("initialized", True, True),
+    ],
+)
+async def test_a_known_lamp_is_set_up_once_its_endpoints_are_known(
+    service, monkeypatch, kind, interviewed, set_up
+):
+    from types import SimpleNamespace
+
+    from kotivalo import zigbee
+    from kotivalo.registry import Discovered
+
+    found = Discovered(LAMP, "light", "Fake panel", "Test", 1, initialized=interviewed)
+    monkeypatch.setattr(zigbee, "discovered", lambda device: found)
+    setups = []
+
+    async def setup(lamp):
+        setups.append(lamp)
+
+    monkeypatch.setattr(service, "_setup_lamp", setup)
+    device = SimpleNamespace(ieee=LAMP, manufacturer="Test", model=None, is_initialized=interviewed)
+    service._device_event(kind, device)
+    await settle()
+    assert setups == ([LAMP] if set_up else [])

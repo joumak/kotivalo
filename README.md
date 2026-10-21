@@ -17,14 +17,14 @@ Planned work and known issues: [docs/ROADMAP.md](docs/ROADMAP.md). Notes for wor
 ## Hardware
 
 - Raspberry Pi 3B+ running Raspberry Pi OS Lite
-- Digi XStick2 ZB: an XBee Series 2 with Coordinator API firmware. Being replaced by a **SONOFF Dongle Plus MG24** (EmberZNet, EZSP): see [Changing the radio](#changing-the-radio).
+- **SONOFF Dongle Plus MG24** (EmberZNet, EZSP), since 2026-10-21. Before it, a Digi XStick2 ZB (XBee Series 2 with Coordinator API firmware), which the code still supports: see [Changing the radio](#changing-the-radio).
 - **Lamps:** IKEA FLOALT panels (white spectrum). Other IKEA lamps with on/off and dimming work too.
 - **Motion sensor:** IKEA VALLHORN (E2134)
 - **Remotes:**
   - STYRBAR (E2001/E2002) and RODRET (E2201)
   - the older TRÅDFRI on/off switch (E1743), 5-button remote (E1810) and shortcut button (E1812)
 
-**Software:** [zigpy](https://github.com/zigpy/zigpy) and [zigpy-xbee](https://github.com/zigpy/zigpy-xbee), the radio stack of Home Assistant's ZHA (zigbee2mqtt does not support XBee radios). aiohttp serves a React UI.
+**Software:** [zigpy](https://github.com/zigpy/zigpy) with [bellows](https://github.com/zigpy/bellows) (and [zigpy-xbee](https://github.com/zigpy/zigpy-xbee) for the old XStick), the radio stack of Home Assistant's ZHA. aiohttp serves a React UI.
 
 ## Who controls a lamp
 
@@ -74,7 +74,7 @@ Each command goes to every bulb at once. The fixture counts as on if any of its 
 - **After a power cut** it goes back to how it was, so a cut at night doesn't light the lamp.
 - **The plugs also strengthen the Zigbee network:** being mains-powered, they relay messages for the devices around them.
 
-**Buying bulbs:** IKEA's **TRÅDFRI** smart bulbs (e.g. GU10 345 lm white spectrum) are Zigbee and work with the XStick. IKEA's newer **KAJPLATS** range is Matter over Thread, which the XStick can't use. Its Zigbee mode is unofficial and stripped down, so avoid it. Ordinary bulbs like **SOLHETTA** have no radio at all.
+**Buying bulbs:** IKEA's **TRÅDFRI** smart bulbs (e.g. GU10 345 lm white spectrum) are Zigbee and work. IKEA's newer **KAJPLATS** range is Matter over Thread, which needs a Thread radio and a Matter stack. Its Zigbee mode is unofficial and stripped down, so avoid it. Ordinary bulbs like **SOLHETTA** have no radio at all.
 
 ## All lamps at once
 
@@ -121,7 +121,7 @@ Choose the lamps a remote controls under **Laitteet → (remote) → settings**.
 
 **During a sunrise:** any remote or UI action on the wake-up lamp ends the sunrise and skips that alarm. "On" then means full brightness ("I'm up").
 
-**Old firmware:** a 5-button remote or on/off switch on firmware older than 2.3.075 sends its presses only to a Zigbee group, which the XStick cannot hear. Its row then shows no presses. Use **Päivitä laiteohjelmisto** in the remote's settings to update it from IKEA's server:
+**Old firmware:** a 5-button remote or on/off switch on firmware older than 2.3.075 sends its presses only to a Zigbee group, which Kotivalo doesn't listen to yet. Its row then shows no presses. Use **Päivitä laiteohjelmisto** in the remote's settings to update it from IKEA's server:
 - it takes 30–90 minutes
 - press a button every few seconds until the update starts, then keep the remote near a lamp
 - a failed update leaves the old firmware in place
@@ -275,7 +275,7 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
 
 ## Troubleshooting
 
-- **"The radio is in use":** the service holds the XStick. Stop it before using CLI radio commands.
+- **"The radio is in use":** the service holds the radio. Stop it before using CLI radio commands.
 - **"The radio has no Zigbee network yet":** run `form-network`. The service exits with code 78 and systemd does not retry.
 - **A lamp stops responding:**
   - Check that the wall switch is on.
@@ -289,14 +289,15 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
   - It may still be setting up: press its pairing button 4 times near a lamp.
   - On old firmware, update it (see Remotes).
   - Check the battery: a weak one makes the remote drop off the network mid-setup.
-- **Every device stops answering at once, while the UI works:** the XStick may have reset itself. Look for `No 'rx' handler` in the log (`journalctl -u kotivalo`): after a reset it sends messages in a form zigpy-xbee drops. Restart the service: `sudo systemctl restart kotivalo`.
+- **Every device stops answering at once, while the UI works:** the radio may have stopped receiving. Restart the service: `sudo systemctl restart kotivalo`.
   - The UI notices this: when no device has been heard for 10 minutes, a banner says so on every page. **Asetukset → Zigbee-radio** shows the stick, its firmware and network, and when a device was last heard. The lamps answer every minute, so that should say "juuri nyt" or a minute or two.
+  - The old XStick did this after resetting itself: `No 'rx' handler` in the log (`journalctl -u kotivalo`), as it then sent messages in a form zigpy-xbee drops.
 
 ## Changing the radio
 
 The code talks to zigpy's generic API, so a new radio is a settings change. But a new radio means a new network, and **every device must be paired again**. Names, rooms, fixtures, motion and remote rules and the wake-up lamp are kept, because they are saved by device address.
 
-**The SONOFF Dongle Plus MG24** (2026-10-21):
+**The SONOFF Dongle Plus MG24** replaced the XStick on 2026-10-21. Re-pairing the 13 devices at hand took about 25 minutes.
 - Firmware EmberZNet 7.4.5 as shipped, 115200 baud: no update needed.
 - Network formed: channel 25, PAN 0xAE6B. zigpy's backups of an EZSP network include the network key, so a later stick swap can restore it without re-pairing.
 
@@ -320,7 +321,7 @@ The code talks to zigpy's generic API, so a new radio is a settings change. But 
 
 3. A radio without a network needs `kotivalo form-network --channel 25` (the Sonoff already has one: `kotivalo radio-info` shows it).
 4. Start the service: `sudo systemctl start kotivalo`. **Asetukset → Zigbee-radio** should now show the SONOFF Dongle Plus MG24 on channel 25, PAN 0xAE6B.
-5. Pair every device again (see [Adding devices](#adding-devices)): lamps first, since they relay for the battery devices, then sensors and remotes next to a lamp. Under **Laitteet**, a device still to be paired says "Ei liitetty".
-6. Unplug the XStick once everything works.
+5. Unplug the old radio before re-pairing. If both networks are on the same channel, a reset device might join the old one. The old network stays stored in the stick.
+6. Pair every device again (see [Adding devices](#adding-devices)): the lamp nearest the Pi first, then the other lamps, since they relay for the battery devices, then sensors and remotes next to a lamp. Under **Laitteet**, a device still to be paired says "Ei liitetty".
 
-**Going back:** with the service stopped, put `settings.xbee.json` and the `zigbee.xbee.db*` files back. Devices already paired to the new radio must then be paired again.
+**Going back:** with the service stopped, plug the XStick back in and put `settings.xbee.json` and the `zigbee.xbee.db*` files back. Devices already paired to the new radio must then be paired again.

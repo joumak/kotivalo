@@ -5,24 +5,26 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 ## System
 
 - **Pi:** Raspberry Pi 3B+, Pi OS Lite (Debian 13, aarch64, **Python 3.13**), `pi@kotivalo.local` (192.168.1.174), passwordless sudo.
-- **Radio:** Digi XStick2 ZB (XBee S2, EM250, ZB Coordinator API firmware 21A7) at `/dev/serial/by-id/usb-Digi_XStick-if00-port0`.
-  - Settings: AP=2, 57600 baud. Zigbee channel 25 (Wi-Fi is on channel 6).
-  - Uses zigpy 2.3.0 + zigpy-xbee 0.22.0. zigbee2mqtt does not support XBee.
-  - **Resets itself now and then** (2026-10-21): its API options fall back to AO=0, so frames arrive as 0x90 `rx`, which zigpy-xbee can't handle (`No 'rx' handler`, a TypeError, in the log). Every device goes silent, but the radio check (`AT AI`) still passes. A service restart sets AO=3 again.
-- **New radio, not in use yet:** SONOFF Dongle Plus MG24 at `/dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_048489522075f011ad93ae2f1045c30f-if00-port0`.
-  - EmberZNet 7.4.5 (EZSP), 115200 baud, software flow control (bellows' default). bellows 1.1.0, the `ezsp` extra, which `deploy.sh` installs.
+- **Radio:** SONOFF Dongle Plus MG24 at `/dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_048489522075f011ad93ae2f1045c30f-if00-port0`, in use since 2026-10-21.
+  - EmberZNet 7.4.5 (EZSP), 115200 baud, software flow control (bellows' default). zigpy 2.3.0 + bellows 1.1.0 (the `ezsp` extra, which `deploy.sh` installs).
+  - Network: channel 25 (Wi-Fi is on channel 6), PAN 0xAE6B, extended PAN `c8:58:f7:22:b3:ba:46:82`, coordinator `18:69:0a:ff:fe:e4:37:0d`. zigpy's backups of it, in `zigbee.db`, include the network key.
   - Firmware tool: `universal-silabs-flasher` in its own venv, `/home/pi/usf/bin/universal-silabs-flasher --device <path> probe` (or `flash`), with the radio not in use.
-  - Network formed 2026-10-21: channel 25, PAN 0xAE6B, extended PAN `c8:58:f7:22:b3:ba:46:82`, coordinator `18:69:0a:ff:fe:e4:37:0d`.
-  - The switch-over is in the README (Changing the radio). zigpy's own watchdog checks this radio, so `_radio_watch` (XBee only) does nothing.
-- **Devices** (the user's home; restore their state after tests):
+  - zigpy's own watchdog checks this radio, so `_radio_watch` (XBee only) does nothing.
+- **Old radio, unplugged 2026-10-21:** Digi XStick2 ZB (XBee S2, EM250, firmware 21A7, AP=2, 57600 baud; zigpy-xbee 0.22.0), PAN 0xD95E on channel 25. Its files are kept as `settings.xbee.json` and `zigbee.xbee.db` (README: Changing the radio). It reset itself now and then: AO fell back to 0, so frames arrived as 0x90 `rx`, which zigpy-xbee drops (`No 'rx' handler`).
+- **Devices** (the user's home; restore their state after tests). All re-paired to the Sonoff on 2026-10-21:
 
   | Device | IEEE | Role |
   |---|---|---|
-  | FLOALT panel WS 60x60 (250–454 mired) | `50:32:5f:ff:fe:6e:e5:2c` | panel 1, a normal lamp |
-  | FLOALT panel WS 60x60 | `d0:cf:5e:ff:fe:1f:a3:9e` | panel 2, the wake-up lamp; the VALLHORN switches it |
+  | FLOALT panel WS 60x60, "FLOALT panel" (250–454 mired) | `d0:cf:5e:ff:fe:1f:a3:9e` | Vaatehuone; the wake-up lamp; the VALLHORN switches it |
+  | FLOALT panel WS 60x60 ×2, "FLOALT panel 1" and "2" | `50:32:5f:ff:fe:6e:e5:2c`, `00:0b:57:ff:fe:bd:8a:ac` | the fixture "Työhuone"; RODRET f066 |
+  | NYMANE PENDANT | `0c:ae:5f:ff:fe:44:08:a8` | Makuuhuone; the STYRBAR |
+  | FLOALT panel WS 30x90, "Eteinen" | `b4:e3:f9:ff:fe:75:1e:58` | Eteinen; RODRET f068 |
+  | TRETAKT plugs: Spottijalkalamput, Sonjan työpöytä, Sohvan valot | `08:fd:52:ff:fe:d3:c7:83`, `18:0d:f9:ff:fe:37:d9:98`, `18:0d:f9:ff:fe:c0:dd:b9` | Olohuone; RODRET 2bc4 switches Spottijalkalamput |
   | VALLHORN motion sensor | `8c:65:a3:ff:fe:3d:d1:6d` | dark_lux 30, off after 2 min (the user's settings) |
-  | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | controls panel 1 |
-  | TRÅDFRI 5-button remote (E1810) | `84:2e:14:ff:fe:41:64:b9` | firmware 2.3.014: group-only, so not working yet; its update failed (weak battery?) |
+  | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | firmware 1.0.024 |
+  | RODRET f066, 2bc4, f068 | `34:8d:13:ff:fe:ff:f0:66`, `08:fd:52:ff:fe:ae:2b:c4`, `34:8d:13:ff:fe:ff:f0:68` | firmware 1.0.57 |
+  | TRÅDFRI 5-button remote (E1810) "5f6d" | `84:2e:14:ff:fe:fb:5f:6d` | firmware 2.3.014: group-only, so its presses aren't heard yet; no lamp yet |
+  | TRÅDFRI 5-button remote (E1810) "64b9" | `84:2e:14:ff:fe:41:64:b9` | misplaced, not re-paired; its rule (NYMANE) is kept. Its update failed on the XStick (weak battery?) |
 - **Service:** systemd unit `kotivalo`, web UI on port 8080.
 - **State:** `/var/lib/kotivalo` (`settings.json`, `state.json`, `zigbee.db`).
 - **Laptop:** dev venv uses Python **3.11.0rc1**, which is not the Pi's 3.13. Code must work on both.
@@ -44,12 +46,12 @@ CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `
 
 ## Hard rules
 
-**Radio (XBee):**
-- **Never form or re-form the network automatically** (`auto_form` is off for every radio). Every write wears the EM250's flash, and a new network means re-pairing every device.
-- Use `xbee-config` only for the one-time AP/baud change, which issues a single `WR`.
+**Radio:**
+- **Never form or re-form the network automatically** (`auto_form` is off for every radio). A new network means re-pairing every device (and on the XBee, every write wears the EM250's flash).
+- Use `xbee-config` (XBee only) just for the one-time AP/baud change, which issues a single `WR`.
 - **zigpy's OTA stays disabled** (`"ota": {"enabled": False}` in `zigpy_config`): lamps must never update themselves. Firmware updates run only on request, for remotes (`find_firmware`/`update_firmware` in `zigbee.py`).
-- **Bindings are unicast to the coordinator.** The XStick drops group-addressed frames, so a device that only sends to groups (E1743/E1810 before firmware 2.3.075) is never heard.
-- **Sleepy devices (sensors, remotes) answer only while awake:** right after joining, a button press or motion. Configure them then (`_configure_soon`), with 30 s timeouts. A failed setup is retried at most every 5 min: queued requests to a sleeping device slow the XStick down.
+- **Bindings are unicast to the coordinator.** A group-addressed frame reaches the Pi only if the coordinator is in that group (the EZSP multicast table; not done yet, and the XStick couldn't at all). So a device that only sends to groups (E1743/E1810 before firmware 2.3.075) is not heard.
+- **Sleepy devices (sensors, remotes) answer only while awake:** right after joining, a button press or motion. Configure them then (`_configure_soon`), with 30 s timeouts. A failed setup is retried at most every 5 min: queued requests to a sleeping device slowed the XStick down.
 
 **IKEA lights** (verified on the FLOALT):
 - **Minimum level is 2.** Level 1 switches it off.

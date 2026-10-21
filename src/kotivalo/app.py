@@ -456,9 +456,12 @@ class Service:
             known_lamp = ieee in self.registry.controllers
             if self.registry.sync([discovered(obj)]):
                 self._save_settings()
-            # A re-paired lamp already in the database is not re-interviewed: set it up
-            # again on "joined" too.
-            if ieee in self.registry.controllers and (kind == "initialized" or known_lamp):
+            # A re-paired lamp still in zigpy's database is not interviewed again: set it
+            # up on "joined" too. One new to the database (a new radio) is set up once its
+            # interview is done: before that, its endpoints are unknown.
+            if ieee in self.registry.controllers and (
+                kind == "initialized" or (known_lamp and obj.is_initialized)
+            ):
                 for lamp in [ieee, *self.registry.channels(ieee)]:
                     self._spawn_logged(self._setup_lamp(lamp), f"Setting up lamp {lamp}")
             elif self._sleepy(ieee):

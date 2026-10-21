@@ -37,13 +37,17 @@ Done, in order:
   - **Best guess:** fast polling, sent once at the start rather than per retry, is what makes it ask.
 - **Next:** retry with the new radio (feature 4). The same applies to an E1743 on/off switch on old firmware.
 
+**On the Sonoff (2026-10-21):** a second E1810 ("5f6d", also firmware 2.3.014) joined and set up fine, but its presses aren't heard. The first one ("64b9") is misplaced and not re-paired. **Next:** read the remote's group (LightLink `get_group_identifiers`) and add the coordinator to it (the EZSP multicast table, through zigpy's group API). The firmware update can be retried too.
+
 ### 2. Every frame arrives four times
 
 Each remote frame reaches the Pi four times within ~40 ms. This is probably MAC-level retries, because the sender doesn't hear the XStick's acknowledgement. `remotes.Decoder` de-duplicates them, and lamp reports are idempotent.
 
-**Effect:** extra airtime only. Check whether lamp reports are also quadrupled; a better radio would probably end it (see feature 4).
+**Effect:** extra airtime only. Check whether lamp reports are also quadrupled; a better radio would probably end it (see feature 4). **Check on the Sonoff.**
 
 ### 3. The XStick slows down when a sleeping device has queued requests
+
+**Gone with the XStick (2026-10-21),** unless the Sonoff shows it too.
 
 Requests to a sleepy device wait at its parent until it wakes, and the XBee seems to stall meanwhile. Once a radio check answered 3 s late. zigpy-xbee then logged `InvalidStateError` from `_handle_at_response`: it sets a result on an already timed-out future. That's harmless, but noisy.
 
@@ -58,7 +62,7 @@ Requests to a sleepy device wait at its parent until it wakes, and the XBee seem
 - **Later that morning,** the same happened at 09:17. The log showed `No 'rx' handler` (a TypeError) for every incoming frame.
 - **The cause:** a reset puts the XBee's API options back to AO=0. Frames then arrive as 0x90 `rx`, which zigpy-xbee doesn't handle, instead of 0x91 explicit rx.
 - **Why the service didn't recover:** the radio check (`AT AI`) still passed, so it never restarted. A manual service restart fixed it.
-- **Not fixed:** the Sonoff replaces the XStick (feature 4).
+- **Resolved 2026-10-21:** the Sonoff replaced the XStick (feature 4). A banner now appears when no device has been heard for 10 minutes, whatever the radio.
 
 **Power:** the Pi reported undervoltage at boot (`vcgencmd get_throttled` = 0x50000). A weak supply can reset USB devices. Use a 5.1 V / 2.5 A supply.
 
@@ -133,9 +137,11 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 - **Firmware:** EmberZNet 7.4.5, fine as shipped.
 - **Network:** formed on channel 25. An energy scan found 25 among the quieter channels. 26 is the busiest, and Wi-Fi channel 6 shows on 17–18.
 - **Tested:** a second instance of the service (port 8091, its own state directory) started on it, opened and closed pairing, and stopped cleanly.
+- **Switched over 2026-10-21, 21:45–22:07:** 13 of the 14 devices re-paired (8 mains, 5 battery; the 14th, an E1810, is misplaced), plus a second E1810; each set up within seconds of joining. The XStick is unplugged.
 - **Next:**
-  - the switch-over and re-pairing, with the user
-  - then the E1810: with EZSP the coordinator can join the remote's group (zigpy groups / the multicast table), or the firmware update can be retried
+  - the E1810 (known issue 1)
+  - once the Sonoff has run well for a few days: delete `/home/pi/sonoff-test` (a test state directory) and, later, the XStick's kept files
+  - once it has run well for a few weeks: remove the XBee-only code (`xbee_config.py`, `xbee-config`, `_radio_watch`, zigpy-xbee)
 
 ### 5. Flash-free switch-on: not possible on this firmware
 

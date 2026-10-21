@@ -332,12 +332,15 @@ class Service:
 
     async def _refresh_all(self) -> None:
         """Read every lamp's capabilities and state (unreachable lamps are skipped)."""
+        regraded: list[str] = []  # found to dim after all, or not: power-on depends on it
 
         async def refresh(ieee: str, controller: LightController) -> bool:
             try:
                 async with asyncio.timeout(REFRESH_TIMEOUT_S), controller.lock:
                     caps = await controller.light.read_caps()
                     changed = caps != controller.caps
+                    if caps.dimmable != controller.caps.dimmable:
+                        regraded.append(ieee)
                     self.registry.set_caps(ieee, caps)
                     await controller.refresh()
                     return changed
@@ -350,8 +353,13 @@ class Service:
         changed = any(await asyncio.gather(*(refresh(i, c) for i, c in lamps)))
         for fixture in self.registry.fixture_ids():
             self.registry.update_fixture(fixture)
+        relamps = list(dict.fromkeys(self.registry.fixture_of(i) or i for i in regraded))
+        for lamp in relamps:
+            self._set_power_on_policy(lamp)
         if changed:
             self._save_settings()
+        for lamp in relamps:
+            self._spawn_logged(self._apply_power_on(lamp), f"Power-on setting for {lamp}")
 
     async def _radio_watch(self) -> None:
         """zigpy has no XBee watchdog: poll the radio and exit (systemd restarts us) if it hangs."""

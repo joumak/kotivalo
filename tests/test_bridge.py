@@ -242,13 +242,28 @@ def dimmer(app):
     return app
 
 
-def test_a_smart_plug_is_a_lamp_that_cannot_dim(app):
+# IKEA TRETAKT, as it describes itself: an On/Off Plug-in Unit that lists Level Control.
+TRETAKT = (0x0104, 0x010A, (0x0000, 0x0003, 0x0004, 0x0005, 0x0006, 0x0008, 0x1000, 0xFC57))
+
+
+@pytest.mark.parametrize(
+    ("profile", "device_type", "clusters", "dimmable"),
+    [
+        (*TRETAKT, False),
+        (0x0104, 0x010A, (0x0000, 0x0003, 0x0004, 0x0005, 0x0006), False),  # On/Off only
+        (0xC05E, 0x0010, (0x0000, 0x0006, 0x0008), False),  # ZLL On/Off Plug-in Unit
+        (0x0104, 0x010B, (0x0000, 0x0006, 0x0008), True),  # Dimmable Plug-in Unit
+        (0x0104, 0x0101, (0x0000, 0x0006, 0x0008), True),  # Dimmable Light
+        (0xC05E, 0x0220, (0x0000, 0x0006, 0x0008, 0x0300), True),  # FLOALT (ZLL CT light)
+    ],
+)
+def test_a_smart_plug_is_a_lamp_that_cannot_dim(app, profile, device_type, clusters, dimmable):
     from kotivalo.zigbee import discovered
 
     device = app.add_device(t.EUI64.convert(PLUG), 0x3A01)
     ep = device.add_endpoint(1)
-    ep.profile_id = 0x0104
-    for cluster_id in (0x0000, 0x0003, 0x0004, 0x0005, OnOff.cluster_id):  # TRETAKT
+    ep.profile_id, ep.device_type = profile, device_type
+    for cluster_id in clusters:
         ep.add_input_cluster(cluster_id)
     ep.status = zigpy.endpoint.Status.ZDO_INIT
     device.status = zigpy.device.Status.ENDPOINTS_INIT
@@ -257,7 +272,7 @@ def test_a_smart_plug_is_a_lamp_that_cannot_dim(app):
         "light",
         1,
         (1,),
-        False,
+        dimmable,
     )
 
 

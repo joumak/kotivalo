@@ -77,6 +77,28 @@ async def test_a_plug_is_a_lamp_that_cannot_dim(setup):
     assert service.settings.wakeup.light == LAMP  # never a plug
 
 
+async def test_a_lamp_found_not_to_dim_gets_the_plug_power_on(setup):
+    """A plug once taken for a dimmable lamp (the TRETAKT lists Level Control) is put
+    right at the next start, and then keeps its state over a power cut."""
+    service, _, _ = setup
+    service.registry.set_caps(PLUG, LightCaps("TRETAKT Smart plug", "IKEA of Sweden"))
+    service.settings.light_settings(PLUG).power_on = "on"
+    written = []
+
+    async def set_power_on(previous):
+        written.append(previous)
+
+    plug(service).set_power_on = set_power_on
+    await service._refresh_all()
+    await settle()
+    assert service.registry.controller(PLUG).caps.dimmable is False
+    assert service.settings.light_settings(PLUG).power_on == "previous"
+    assert written == [True]
+    await service._refresh_all()  # nothing changed this time
+    await settle()
+    assert written == [True]
+
+
 async def test_switching_a_plug_sends_only_on_and_off(setup):
     service, client, clock = setup
     for action in ("on", "off", "toggle"):

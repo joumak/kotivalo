@@ -159,7 +159,20 @@ def light_endpoints(device: zigpy.device.Device) -> list:
     return dimmable or switchable
 
 
+# (profile, device type) of lamps that only switch. Some list Level Control anyway:
+# IKEA's TRETAKT plug (an On/Off Plug-in Unit) has it, but doesn't dim.
+SWITCH_ONLY_TYPES = {
+    (0x0104, 0x0100),  # Home Automation: On/Off Light
+    (0x0104, 0x010A),  # On/Off Plug-in Unit
+    (0x0104, 0x0009),  # Mains Power Outlet
+    (0xC05E, 0x0000),  # ZLL: On/Off Light
+    (0xC05E, 0x0010),  # On/Off Plug-in Unit
+}
+
+
 def is_dimmable(ep) -> bool:
+    if (getattr(ep, "profile_id", None), getattr(ep, "device_type", None)) in SWITCH_ONLY_TYPES:
+        return False
     return LevelControl.cluster_id in getattr(ep, "in_clusters", {})
 
 

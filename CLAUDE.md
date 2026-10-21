@@ -92,9 +92,10 @@ Everything else:
   - **Finding the radio device:** `Registry.device_of(lamp)` gives the Zigbee device for radio work.
   - **Reports:** `EventBridge` maps `(ieee, endpoint)` to the lamp id.
   - **Pairing and power return:** a join or announce sets up, or refreshes, every channel.
-- **Lamps that can't dim** (smart plugs: `LightCaps.dimmable` False, from an endpoint with On/Off but no Level Control; `Discovered.dimmable` sets it before the first read):
+- **Lamps that can't dim** (smart plugs: `LightCaps.dimmable` False, from the endpoint's device type (`SWITCH_ONLY_TYPES`: the TRETAKT is an On/Off Plug-in Unit that lists Level Control anyway) or an endpoint with On/Off but no Level Control; `Discovered.dimmable` sets it before the first read):
   - `LightController` turns any level into `on()` and skips fades, parking, moves and stops. So motion, remotes, "on" and the master switch need nothing special.
   - Never the wake-up lamp. Power-on is "previous", so a power cut at night leaves the lamp off.
+  - A lamp whose caps change dimmable at a start (`_refresh_all`) gets its power-on setting written again.
   - The UI card only switches: no drag (`useDragLevel(..., canDrag=false)`), no brightness slider, a plug icon.
 - **Hand only** (`LampMemo.hand_only`; `lamp_action(ieee, "hand_only", 1|0)`):
   - `Behaviour.motion` and `tick` skip the lamp.

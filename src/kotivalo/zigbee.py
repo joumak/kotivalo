@@ -118,8 +118,8 @@ async def start_app(
     `on_created` runs after the database is loaded and before the radio starts, so
     listeners attached there see every report from the first moment.
 
-    XBee networks are formed explicitly with `form-network`, never automatically:
-    every network write costs EM250 flash cycles and forces a re-pair.
+    Networks are formed explicitly with `form-network`, never automatically: a new
+    network means re-pairing every device (and on the XBee, wears the EM250's flash).
     """
     cls = controller_class(radio.type)
     app = await cls.new(zigpy_config(radio, db_path), start_radio=False)
@@ -128,7 +128,7 @@ async def start_app(
     if not start_radio:
         return app
     try:
-        await app.startup(auto_form=radio.type != "xbee")
+        await app.startup(auto_form=False)
     except BaseException as exc:
         # zigpy's failed startup closes the radio but not the database, whose
         # worker thread would keep the process alive after the error.

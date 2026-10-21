@@ -51,7 +51,18 @@ Requests to a sleepy device wait at its parent until it wakes, and the XBee seem
 
 **Seen 2026-10-11:** during the remote's firmware update the XStick stopped answering long enough for a restart, and at the next start it didn't even accept API mode (it recovered on the second start).
 
-### 4. Laptop Python differs from the Pi
+### 4. The XStick resets itself, and then drops every incoming message
+
+**Seen 2026-10-21:**
+- **Earlier that morning,** every device stopped answering while the UI still worked, and the user restarted the Pi. That log is gone (the journal is in RAM).
+- **Later that morning,** the same happened at 09:17. The log showed `No 'rx' handler` (a TypeError) for every incoming frame.
+- **The cause:** a reset puts the XBee's API options back to AO=0. Frames then arrive as 0x90 `rx`, which zigpy-xbee doesn't handle, instead of 0x91 explicit rx.
+- **Why the service didn't recover:** the radio check (`AT AI`) still passed, so it never restarted. A manual service restart fixed it.
+- **Not fixed:** the Sonoff replaces the XStick (feature 4).
+
+**Power:** the Pi reported undervoltage at boot (`vcgencmd get_throttled` = 0x50000). A weak supply can reset USB devices. Use a 5.1 V / 2.5 A supply.
+
+### 5. Laptop Python differs from the Pi
 
 The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Python 3.13 when the folder is renamed to `~/my/kotivalo`.
 
@@ -116,6 +127,15 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 **The switch-over:**
 - The code talks to zigpy's generic API, so swapping is a settings change (radio type, port, baud) plus forming a new network and re-pairing every device (see the README).
 - Do it before the AGGE dimmer is installed, so the dimmer is paired only once.
+
+**Progress (2026-10-21):**
+- **Bought:** the Sonoff Dongle Plus MG24, plugged into the Pi next to the XStick.
+- **Firmware:** EmberZNet 7.4.5, fine as shipped.
+- **Network:** formed on channel 25. An energy scan found 25 among the quieter channels. 26 is the busiest, and Wi-Fi channel 6 shows on 17–18.
+- **Tested:** a second instance of the service (port 8091, its own state directory) started on it, opened and closed pairing, and stopped cleanly.
+- **Next:**
+  - the switch-over and re-pairing, with the user
+  - then the E1810: with EZSP the coordinator can join the remote's group (zigpy groups / the multicast table), or the firmware update can be retried
 
 ### 5. Flash-free switch-on: not possible on this firmware
 

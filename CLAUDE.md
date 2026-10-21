@@ -8,6 +8,12 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 - **Radio:** Digi XStick2 ZB (XBee S2, EM250, ZB Coordinator API firmware 21A7) at `/dev/serial/by-id/usb-Digi_XStick-if00-port0`.
   - Settings: AP=2, 57600 baud. Zigbee channel 25 (Wi-Fi is on channel 6).
   - Uses zigpy 2.3.0 + zigpy-xbee 0.22.0. zigbee2mqtt does not support XBee.
+  - **Resets itself now and then** (2026-10-21): its API options fall back to AO=0, so frames arrive as 0x90 `rx`, which zigpy-xbee can't handle (`No 'rx' handler`, a TypeError, in the log). Every device goes silent, but the radio check (`AT AI`) still passes. A service restart sets AO=3 again.
+- **New radio, not in use yet:** SONOFF Dongle Plus MG24 at `/dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_048489522075f011ad93ae2f1045c30f-if00-port0`.
+  - EmberZNet 7.4.5 (EZSP), 115200 baud, software flow control (bellows' default). bellows 1.1.0, the `ezsp` extra, which `deploy.sh` installs.
+  - Firmware tool: `universal-silabs-flasher` in its own venv, `/home/pi/usf/bin/universal-silabs-flasher --device <path> probe` (or `flash`), with the radio not in use.
+  - Network formed 2026-10-21: channel 25, PAN 0xAE6B, extended PAN `c8:58:f7:22:b3:ba:46:82`, coordinator `18:69:0a:ff:fe:e4:37:0d`.
+  - The switch-over is in the README (Changing the radio). zigpy's own watchdog checks this radio, so `_radio_watch` (XBee only) does nothing.
 - **Devices** (the user's home; restore their state after tests):
 
   | Device | IEEE | Role |
@@ -39,7 +45,7 @@ CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `
 ## Hard rules
 
 **Radio (XBee):**
-- **Never form or re-form the network automatically** (`auto_form` is off for xbee). Every write wears the EM250's flash, and a new network means re-pairing every device.
+- **Never form or re-form the network automatically** (`auto_form` is off for every radio). Every write wears the EM250's flash, and a new network means re-pairing every device.
 - Use `xbee-config` only for the one-time AP/baud change, which issues a single `WR`.
 - **zigpy's OTA stays disabled** (`"ota": {"enabled": False}` in `zigpy_config`): lamps must never update themselves. Firmware updates run only on request, for remotes (`find_firmware`/`update_firmware` in `zigbee.py`).
 - **Bindings are unicast to the coordinator.** The XStick drops group-addressed frames, so a device that only sends to groups (E1743/E1810 before firmware 2.3.075) is never heard.

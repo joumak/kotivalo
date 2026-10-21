@@ -44,7 +44,7 @@ if [[ ! -x .venv/bin/python ]]; then
   python3 -m venv .venv
   .venv/bin/pip install -q --upgrade pip
 fi
-.venv/bin/pip install -q -e .
+.venv/bin/pip install -q -e '.[ezsp]'  # bellows: the Sonoff (EZSP) radio
 
 if [[ "$SERVICE" == 1 ]]; then
   sudo install -m 644 deploy/kotivalo.service /etc/systemd/system/kotivalo.service

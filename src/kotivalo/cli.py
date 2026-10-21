@@ -53,6 +53,9 @@ def cmd_radio_info(args, store: Store) -> None:
     from kotivalo.zigbee import radio_lock
 
     radio = store.load_settings().radio
+    if radio.type != "xbee":
+        asyncio.run(_radio_info(radio, store))
+        return
     with radio_lock(store.lock_path):
         info = xbee_config.read_info(radio.path, radio.baudrate)
         if all(r is None for r in info.values()):
@@ -76,6 +79,32 @@ def cmd_radio_info(args, store: Store) -> None:
             elif cmd in ("CH", "AP", "ZS", "EE", "EO", "NJ", "PL"):
                 text += f"  = {value}"
         print(f"  {cmd}  {text}")
+
+
+async def _radio_info(radio, store: Store) -> None:
+    """Any other radio, through zigpy (read-only): firmware, address and network."""
+    import zigpy.exceptions
+
+    from kotivalo.zigbee import controller_class, radio_lock, zigpy_config
+
+    with radio_lock(store.lock_path):
+        cls = controller_class(radio.type)
+        app = await cls.new(zigpy_config(radio, store.db_path), start_radio=False)
+        try:
+            await app.connect()
+            try:
+                await app.load_network_info()
+            except zigpy.exceptions.NetworkNotFormed:
+                say("The radio answers, but has no Zigbee network yet (form-network)")
+                return
+            node, net = app.state.node_info, app.state.network_info
+            print(f"  radio     {node.manufacturer or '?'} {node.model or '?'}")
+            print(f"  firmware  {node.version or '?'}")
+            print(f"  IEEE      {node.ieee}")
+            print(f"  channel   {net.channel}")
+            print(f"  PAN       0x{net.pan_id:04X}, extended {net.extended_pan_id}")
+        finally:
+            await app.shutdown()
 
 
 def cmd_form_network(args, store: Store) -> None:
@@ -300,7 +329,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("xbee-config", help="one-time: set the XBee to AP=2 and 57600 baud")
     p.set_defaults(func=cmd_xbee_config)
 
-    p = sub.add_parser("radio-info", help="show XBee parameters (raw, read-only)")
+    p = sub.add_parser("radio-info", help="show the radio and its network (read-only)")
     p.set_defaults(func=cmd_radio_info)
 
     p = sub.add_parser("form-network", help="one-time: create the Zigbee network")

@@ -17,7 +17,7 @@ Planned work and known issues: [docs/ROADMAP.md](docs/ROADMAP.md). Notes for wor
 ## Hardware
 
 - Raspberry Pi 3B+ running Raspberry Pi OS Lite
-- Digi XStick2 ZB: an XBee Series 2 with Coordinator API firmware
+- Digi XStick2 ZB: an XBee Series 2 with Coordinator API firmware. Being replaced by a **SONOFF Dongle Plus MG24** (EmberZNet, EZSP): see [Changing the radio](#changing-the-radio).
 - **Lamps:** IKEA FLOALT panels (white spectrum). Other IKEA lamps with on/off and dimming work too.
 - **Motion sensor:** IKEA VALLHORN (E2134)
 - **Remotes:**
@@ -259,8 +259,8 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
 4. Prepare the radio. These commands are on the Pi, in `~/kotivalo`, using `.venv/bin/kotivalo`.
 
    ```sh
-   kotivalo radio-info              # read-only: firmware, AP, baud, network
-   kotivalo xbee-config             # one-time: AP=2 + 57600 baud, verified before saving
+   kotivalo radio-info              # read-only: firmware, network (XBee: AP, baud too)
+   kotivalo xbee-config             # XBee only, one-time: AP=2 + 57600 baud, verified before saving
    kotivalo form-network --channel 25
    ```
 
@@ -268,6 +268,7 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
    - Pick a Zigbee channel away from your Wi-Fi. Wi-Fi channel 1 → Zigbee 20 or 25; channel 6 → 25; channel 11 → 15. Check with `nmcli -f CHAN,SSID dev wifi`.
    - Forming a new network means every device must be paired again.
    - Don't re-form unnecessarily: the XBee's flash wears with each write.
+   - The service never forms a network by itself, on any radio.
 5. Start the service with `deploy/deploy.sh`, then pair devices from the UI (Laitteet → Lisää laite).
 
    The CLI can pair and control lamps too (`kotivalo pair`, `devices`, `light level 128`), but radio commands need the service stopped first: `sudo systemctl stop kotivalo`.
@@ -288,7 +289,37 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
   - It may still be setting up: press its pairing button 4 times near a lamp.
   - On old firmware, update it (see Remotes).
   - Check the battery: a weak one makes the remote drop off the network mid-setup.
-- **If the XStick ever won't keep devices joined, swap the radio.** A Sonoff ZBDongle-E or ZBDongle-P works with the same code:
-  1. `pip install -e '.[ezsp]'` or `'.[znp]'`.
-  2. Set `radio` in `settings.json` to `{"type": "ezsp" or "znp", "path": "/dev/serial/by-id/...", "baudrate": 115200}`.
-  3. Pair again. Those radios form their network automatically on first start.
+- **Every device stops answering at once, while the UI works:** the XStick may have reset itself. Look for `No 'rx' handler` in the log (`journalctl -u kotivalo`): after a reset it sends messages in a form zigpy-xbee drops. Restart the service: `sudo systemctl restart kotivalo`.
+
+## Changing the radio
+
+The code talks to zigpy's generic API, so a new radio is a settings change. But a new radio means a new network, and **every device must be paired again**. Names, rooms, fixtures, motion and remote rules and the wake-up lamp are kept, because they are saved by device address.
+
+**The SONOFF Dongle Plus MG24** (2026-10-21):
+- Firmware EmberZNet 7.4.5 as shipped, 115200 baud: no update needed.
+- Network formed: channel 25, PAN 0xAE6B. zigpy's backups of an EZSP network include the network key, so a later stick swap can restore it without re-pairing.
+
+**The switch-over** (on the Pi, in `~/kotivalo`; check that no sunrise is running):
+
+1. Stop the service: `sudo systemctl stop kotivalo`.
+2. Point the settings at the new radio and keep the old device database aside:
+
+   ```sh
+   cd /var/lib/kotivalo
+   cp settings.json settings.xbee.json
+   for f in zigbee.db*; do mv "$f" "zigbee.xbee${f#zigbee}"; done   # with its -wal, -shm
+   python3 - <<'PY'
+   import json
+   s = json.load(open("settings.json"))
+   s["radio"] = {"type": "ezsp", "baudrate": 115200, "flow_control": None, "channel": 25,
+       "path": "/dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_048489522075f011ad93ae2f1045c30f-if00-port0"}
+   json.dump(s, open("settings.json", "w"), indent=2)
+   PY
+   ```
+
+3. A radio without a network needs `kotivalo form-network --channel 25` (the Sonoff already has one: `kotivalo radio-info` shows it).
+4. Start the service: `sudo systemctl start kotivalo`.
+5. Pair every device again (see [Adding devices](#adding-devices)): lamps first, since they relay for the battery devices, then sensors and remotes next to a lamp. Under **Laitteet**, a device still to be paired says "Ei liitetty".
+6. Unplug the XStick once everything works.
+
+**Going back:** with the service stopped, put `settings.xbee.json` and the `zigbee.xbee.db*` files back. Devices already paired to the new radio must then be paired again.

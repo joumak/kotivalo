@@ -26,6 +26,7 @@ class FakeRadioApp:
 
     async def startup(self, auto_form=False):
         self.calls.append("startup")
+        self.auto_form = auto_form
         if self.startup_error is not None:
             raise self.startup_error
 
@@ -54,6 +55,21 @@ def test_radio_class_gets_the_tolerant_permit():
     cls = zigbee.controller_class("xbee")
     assert issubclass(cls, XBeeApp)
     assert cls.permit is zigbee.TolerantPermit.permit
+
+
+@pytest.mark.parametrize("radio_type", ["xbee", "ezsp", "znp"])
+async def test_no_radio_forms_a_network_by_itself(monkeypatch, tmp_path, radio_type):
+    """A new network would orphan every paired device: only `form-network` makes one."""
+    created = []
+
+    class App(FakeRadioApp):
+        def __init__(self):
+            super().__init__()
+            created.append(self)
+
+    monkeypatch.setattr(zigbee, "controller_class", lambda radio_type: App)
+    await zigbee.start_app(RadioSettings(type=radio_type), tmp_path / "zigbee.db")
+    assert created[0].auto_form is False
 
 
 @pytest.mark.parametrize(

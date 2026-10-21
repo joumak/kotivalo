@@ -37,7 +37,9 @@ Done, in order:
   - **Best guess:** fast polling, sent once at the start rather than per retry, is what makes it ask.
 - **Next:** retry with the new radio (feature 4). The same applies to an E1743 on/off switch on old firmware.
 
-**On the Sonoff (2026-10-21):** both E1810s (the first, "64b9", and a second, "5f6d", both firmware 2.3.014) joined and set up fine, but their presses aren't heard. **Next:** read the remote's group (LightLink `get_group_identifiers`) and add the coordinator to it (the EZSP multicast table, through zigpy's group API). The firmware update can be retried too.
+**On the Sonoff (2026-10-21):** both E1810s (the first, "64b9", and a second, "5f6d", both firmware 2.3.014) joined and set up fine, but their presses weren't heard.
+- **The update works over the Sonoff:** 64b9 went to 24.4.5 from the UI (Päivitä laiteohjelmisto) in 1 h 50 min (22:39–00:31), steadily at 9–13 min per 10 %, with no errors. It rebooted, was set up again at once, and now binds unicast.
+- **Next:** check that 64b9's presses arrive, then update 5f6d the same way. The group route (LightLink `get_group_identifiers`, then the coordinator into that group through the EZSP multicast table) is needed only for a remote that can't be updated.
 
 ### 2. Every frame arrives four times
 

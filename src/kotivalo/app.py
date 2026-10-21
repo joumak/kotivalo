@@ -88,6 +88,7 @@ LAST_KNOWN_SAVE_S = 600  # how often lamps' last known states are saved (when ch
 CONFIGURE_RETRY_S = 300  # a sleepy device that failed setup is retried at most this often
 MASTER_MAX_DELAY_S = 3600  # a delayed master-off
 MASTER_LATE_S = 600  # a delayed master-off overdue by more (the service was down) is dropped
+HEARD_PUSH_S = 60  # "last heard" times reach the UI at most this often (lamps answer every minute)
 
 
 def poll_delay(failures: int) -> float:
@@ -174,6 +175,10 @@ class Service:
             on_start=self._sunrise_started,
         )
         self.zigbee = None  # zigpy ControllerApplication
+        self.radio_info: dict = {}  # what the radio said about itself at start
+        self.radio_started: float | None = None  # unix time
+        self.heard: dict[str, float] = {}  # the last frame from each device, unix time
+        self._heard_pushed = 0.0
         self.clock_synced: bool | None = None
         self.pairing_until: datetime | None = None
         self.last_event: str | None = None
@@ -237,7 +242,7 @@ class Service:
                 self.fake_plugs,
             )
         else:
-            from kotivalo.zigbee import DeviceEvents, EventBridge, discover, start_app
+            from kotivalo.zigbee import DeviceEvents, EventBridge, discover, radio_info, start_app
 
             def attach(app) -> None:  # before the radio starts: no report is missed
                 bridge = EventBridge(self.events)
@@ -247,6 +252,8 @@ class Service:
             self.zigbee = await start_app(
                 self.settings.radio, self.store.db_path, on_created=attach
             )
+            self.radio_info = radio_info(self.zigbee)
+            self.radio_started = self.clock.now().timestamp()
             self.zigbee.add_listener(DeviceEvents(self._device_event))
             found = discover(self.zigbee)
             self._spawn(self._radio_watch())
@@ -575,8 +582,17 @@ class Service:
             case Button(action=action):
                 self._remote_pressed(event.ieee, action)
             case Seen():
+                self._heard(event.ieee, now)
                 if self._sleepy(event.ieee) and not self.settings.devices[event.ieee].configured:
                     self._configure_soon(event.ieee, retry=True)
+
+    def _heard(self, ieee: str, now: datetime) -> None:
+        """A frame from a device. A radio that hears nothing has stopped receiving (the
+        XStick after resetting itself) even if it still answers us."""
+        self.heard[ieee] = now.timestamp()
+        if self.heard[ieee] - self._heard_pushed >= HEARD_PUSH_S:
+            self._heard_pushed = self.heard[ieee]
+            self.notify()
 
     def _kind(self, ieee: str) -> str | None:
         device = self.settings.devices.get(ieee)
@@ -1586,7 +1602,10 @@ class Service:
     def device_list(self) -> list[dict]:
         result = []
         for ieee, device in self.settings.devices.items():
-            found = self.registry.discovered.get(self.registry.device_of(ieee))
+            radio_device = self.registry.device_of(ieee)
+            found = self.registry.discovered.get(radio_device)
+            # zigpy's last_seen is read at start; frames since then are in `heard`
+            seen = self.heard.get(radio_device, found.last_seen if found else None)
             channels = self.registry.channels(device.parent or ieee)
             channel = None
             if channels:  # numbered 1.. in the order the device lists them
@@ -1600,7 +1619,7 @@ class Service:
                     "model": device.model,
                     "manufacturer": device.manufacturer,
                     "nwk": found.nwk if found else None,
-                    "last_seen": found.last_seen if found else None,
+                    "last_seen": seen,
                     "initialized": found.initialized if found else False,
                     "paired": self.registry.paired(ieee),
                     "is_light": device.kind == "light",
@@ -1614,6 +1633,21 @@ class Service:
                 }
             )
         return result
+
+    def radio_status(self) -> dict:
+        """The radio, its network, and when it last heard any device (unix times)."""
+        info = self.radio_info
+        return {
+            "type": self.settings.radio.type,
+            "fake": self.fake,
+            "manufacturer": info.get("manufacturer"),
+            "model": info.get("model"),
+            "firmware": info.get("firmware"),
+            "channel": info.get("channel"),
+            "pan_id": info.get("pan_id"),
+            "started": self.radio_started,
+            "heard": max(self.heard.values(), default=None),
+        }
 
     def snapshot(self) -> dict:
         now = self.clock.now()
@@ -1631,7 +1665,7 @@ class Service:
             "now": now.isoformat(),
             "timezone": settings.timezone,
             "clock_synced": self.clock_synced,
-            "radio": {"type": settings.radio.type, "fake": self.fake},
+            "radio": self.radio_status(),
             "lights": [self.lamp_status(ieee) for ieee in self.registry.lamp_ids()],
             "wakeup": {"light": wakeup.light, "alarms": alarms, "ramp": ramp},
             "night": asdict(settings.night),

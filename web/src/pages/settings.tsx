@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 
 import { useActions } from '@/api/actions'
@@ -12,6 +13,8 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { LANGS, useLang } from '@/i18n'
 import type { Lang } from '@/i18n'
+import { heardMinutes, radioName, radioQuiet } from '@/lib/radio'
+import { useNow } from '@/lib/screen'
 import { cn } from '@/lib/utils'
 import { describePlace } from '@/lib/weather'
 
@@ -61,6 +64,7 @@ export function SettingsPage({ panel, onPanel }: SettingsPageProps) {
         <NightWindow />
         <WeatherSettings />
         <AccessCode />
+        <RadioInfo />
       </div>
     </>
   )
@@ -189,6 +193,46 @@ function WeatherSettings() {
         ))}
       <p className="mt-4 text-sm text-muted-foreground">{t.weather.attribution}</p>
     </section>
+  )
+}
+
+/** The radio and its network, and whether it still hears the devices (read-only). */
+function RadioInfo() {
+  const { t } = useLang()
+  const { snapshot } = useLive()
+  const now = useNow(30_000).getTime()
+  if (!snapshot) return null
+  const radio = snapshot.radio
+  const minutes = heardMinutes(radio, now)
+  const quiet = radioQuiet(radio, now, snapshot.devices.some((d) => d.paired))
+  return (
+    <section>
+      <h2 className="text-lg font-medium">{t.radio.title}</h2>
+      <p className="mt-1 mb-4 text-muted-foreground">{t.radio.help}</p>
+      {radio.fake ? (
+        <p className="text-sm text-muted-foreground">{t.radio.fake}</p>
+      ) : (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-2xl border bg-card px-4 py-3">
+          <RadioRow label={t.radio.stick}>{radioName(radio)}</RadioRow>
+          {radio.firmware && <RadioRow label={t.radio.firmware}>{radio.firmware}</RadioRow>}
+          {radio.channel !== null && radio.pan_id && (
+            <RadioRow label={t.radio.network}>{t.radio.channel(radio.channel, radio.pan_id)}</RadioRow>
+          )}
+          <RadioRow label={t.radio.heard} warn={quiet}>
+            {minutes === null ? t.radio.notYet : t.time.ago(minutes)}
+          </RadioRow>
+        </dl>
+      )}
+    </section>
+  )
+}
+
+function RadioRow({ label, warn = false, children }: { label: string; warn?: boolean; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={cn('min-w-0 break-words tabular-nums', warn && 'font-medium text-ember')}>{children}</dd>
+    </>
   )
 }
 

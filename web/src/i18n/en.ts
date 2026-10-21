@@ -28,6 +28,8 @@ export const en = {
     offline: 'No connection to Kotivalo. Trying again…',
     unauthorized: 'This page needs the access code. Enter it in Settings.',
     clock: "The clock isn't synced yet, so alarms use the Pi's own clock.",
+    radioQuiet: (minutes: number) =>
+      `The Zigbee radio hasn't heard from any device for over ${minutes} minutes. If the lamps don't respond either, restart Kotivalo.`,
   },
   time: { ago, inTime },
   lamp: {
@@ -266,6 +268,17 @@ export const en = {
     tokenHelp: 'Only needed if one has been set on the Pi.',
     saveToken: 'Use this code',
     saved: 'Saved',
+  },
+  radio: {
+    title: 'Zigbee radio',
+    help: 'The USB stick through which Kotivalo talks to the lamps, sensors and remotes.',
+    fake: 'Test mode: simulated devices, no radio.',
+    stick: 'Stick',
+    firmware: 'Firmware',
+    network: 'Network',
+    channel: (channel: number, pan: string) => `Channel ${channel}, PAN ${pan}`,
+    heard: 'Heard from devices',
+    notYet: 'Not yet',
   },
   panel: {
     menu: 'Menu',

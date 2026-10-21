@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import { useLive } from '@/api/live'
 import { useT } from '@/i18n'
 import { hasRail, useLayout } from '@/lib/layout'
+import { QUIET_MINUTES, radioQuiet } from '@/lib/radio'
+import { useNow } from '@/lib/screen'
 import { cn } from '@/lib/utils'
 
 export type Tab = 'lights' | 'wakeup' | 'devices' | 'settings'
@@ -88,10 +90,14 @@ export function Shell({ tab, onTab, onBackToPanel, children }: ShellProps) {
 function Banners() {
   const t = useT()
   const { snapshot, connection } = useLive()
+  const now = useNow(30_000).getTime()
   const messages: string[] = []
   if (connection === 'offline') messages.push(t.banner.offline)
   if (connection === 'unauthorized') messages.push(t.banner.unauthorized)
   if (snapshot?.clock_synced === false) messages.push(t.banner.clock)
+  if (snapshot && radioQuiet(snapshot.radio, now, snapshot.devices.some((d) => d.paired))) {
+    messages.push(t.banner.radioQuiet(QUIET_MINUTES))
+  }
   if (messages.length === 0) return null
   return (
     <div role="status" className="mb-4 flex flex-col gap-2">

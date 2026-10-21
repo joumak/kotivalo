@@ -290,6 +290,7 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
   - On old firmware, update it (see Remotes).
   - Check the battery: a weak one makes the remote drop off the network mid-setup.
 - **Every device stops answering at once, while the UI works:** the XStick may have reset itself. Look for `No 'rx' handler` in the log (`journalctl -u kotivalo`): after a reset it sends messages in a form zigpy-xbee drops. Restart the service: `sudo systemctl restart kotivalo`.
+  - The UI notices this: when no device has been heard for 10 minutes, a banner says so on every page. **Asetukset → Zigbee-radio** shows the stick, its firmware and network, and when a device was last heard. The lamps answer every minute, so that should say "juuri nyt" or a minute or two.
 
 ## Changing the radio
 
@@ -318,7 +319,7 @@ The code talks to zigpy's generic API, so a new radio is a settings change. But 
    ```
 
 3. A radio without a network needs `kotivalo form-network --channel 25` (the Sonoff already has one: `kotivalo radio-info` shows it).
-4. Start the service: `sudo systemctl start kotivalo`.
+4. Start the service: `sudo systemctl start kotivalo`. **Asetukset → Zigbee-radio** should now show the SONOFF Dongle Plus MG24 on channel 25, PAN 0xAE6B.
 5. Pair every device again (see [Adding devices](#adding-devices)): lamps first, since they relay for the battery devices, then sensors and remotes next to a lamp. Under **Laitteet**, a device still to be paired says "Ei liitetty".
 6. Unplug the XStick once everything works.
 

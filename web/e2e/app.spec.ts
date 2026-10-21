@@ -141,6 +141,12 @@ test('switches the language to English', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Lights' })).toBeVisible()
 })
 
+test('settings show the radio (none in test mode)', async ({ page }) => {
+  await open(page, '#/settings')
+  await expect(page.getByRole('heading', { name: 'Zigbee-radio' })).toBeVisible()
+  await expect(page.getByText('Testitila: simuloidut laitteet, ei radiota.')).toBeVisible()
+})
+
 test('wall panel at night: the first touch only wakes the screen', async ({ page, request }) => {
   const hhmm = (d: Date) => d.toTimeString().slice(0, 5)
   const now = Date.now()

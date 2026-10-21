@@ -25,6 +25,8 @@ export const fi: Messages = {
     offline: 'Ei yhteyttä Kotivaloon. Yritetään uudelleen…',
     unauthorized: 'Tämä sivu tarvitsee pääsykoodin. Anna se asetuksissa.',
     clock: 'Kelloa ei ole vielä täsmätty, joten herätykset käyttävät laitteen omaa kelloa.',
+    radioQuiet: (minutes) =>
+      `Zigbee-radio ei ole kuullut yhdestäkään laitteesta yli ${minutes} minuuttiin. Jos lamputkaan eivät vastaa, käynnistä Kotivalo uudelleen.`,
   },
   time: { ago, inTime },
   lamp: {
@@ -259,6 +261,17 @@ export const fi: Messages = {
     tokenHelp: 'Tarvitaan vain, jos laitteeseen on asetettu koodi.',
     saveToken: 'Käytä tätä koodia',
     saved: 'Tallennettu',
+  },
+  radio: {
+    title: 'Zigbee-radio',
+    help: 'USB-tikku, jonka kautta Kotivalo puhuu lampuille, antureille ja kaukosäätimille.',
+    fake: 'Testitila: simuloidut laitteet, ei radiota.',
+    stick: 'Tikku',
+    firmware: 'Laiteohjelmisto',
+    network: 'Verkko',
+    channel: (channel, pan) => `Kanava ${channel}, PAN ${pan}`,
+    heard: 'Kuultu laitteista',
+    notYet: 'Ei vielä',
   },
   panel: {
     menu: 'Valikko',

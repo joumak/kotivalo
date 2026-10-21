@@ -198,13 +198,25 @@ export interface RunRecord {
   finished: string
 }
 
+export interface Radio {
+  type: string // xbee | ezsp | znp
+  fake: boolean // `serve --fake`: simulated devices, no radio
+  manufacturer: string | null
+  model: string | null
+  firmware: string | null
+  channel: number | null
+  pan_id: string | null // "0xAE6B"
+  started: number | null // unix seconds
+  heard: number | null // unix seconds: the last frame from any device
+}
+
 export interface Snapshot {
   boot: string // changes when the service restarts
   seq: number // grows with every snapshot of one boot
   now: string
   timezone: string
   clock_synced: boolean | null
-  radio: { type: string; fake: boolean }
+  radio: Radio
   lights: Lamp[]
   wakeup: { light: string | null; alarms: Alarm[]; ramp: Ramp }
   night: { start: string; end: string }

@@ -292,3 +292,23 @@ async def test_each_channel_of_a_dimmer_reports_as_its_own_lamp(dimmer):
     dimmer.packet_received(report(2, "18090a00001000"))  # channel 2: off
     events = await drain(queue)
     assert [(e.ieee, int(e.value)) for e in events] == [(DIMMER, 1), (f"{DIMMER}-2", 0)]
+
+
+def test_what_the_radio_says_about_itself():
+    from types import SimpleNamespace
+
+    from zigpy.state import State
+
+    from kotivalo.zigbee import radio_info
+
+    state = State()
+    state.node_info.manufacturer, state.node_info.model = "SONOFF", "Dongle Plus MG24"
+    state.node_info.version = "7.4.5.0 build 0"
+    state.network_info.channel, state.network_info.pan_id = 25, t.PanId(0xAE6B)
+    assert radio_info(SimpleNamespace(state=state)) == {
+        "manufacturer": "SONOFF",
+        "model": "Dongle Plus MG24",
+        "firmware": "7.4.5.0 build 0",
+        "channel": 25,
+        "pan_id": "0xAE6B",
+    }

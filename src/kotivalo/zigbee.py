@@ -143,6 +143,18 @@ async def start_app(
     return app
 
 
+def radio_info(app: zigpy.application.ControllerApplication) -> dict[str, Any]:
+    """What a started radio says about itself and its network."""
+    node, net = app.state.node_info, app.state.network_info
+    return {
+        "manufacturer": node.manufacturer or None,
+        "model": node.model or None,
+        "firmware": node.version or None,
+        "channel": net.channel or None,
+        "pan_id": f"0x{net.pan_id:04X}",
+    }
+
+
 def is_coordinator(device: zigpy.device.Device) -> bool:
     return device.nwk == 0x0000
 

@@ -136,3 +136,40 @@ async def test_a_lamp_that_cannot_be_read_shows_what_it_last_had(tmp_path):
         assert lamp["error"] is not None
     finally:
         await second.stop()
+
+
+async def test_frames_say_when_each_device_and_the_radio_last_heard_anything(tmp_path, monkeypatch):
+    """A radio that answers us but hears nothing (the XStick after a reset) shows as quiet."""
+    from datetime import UTC, datetime
+
+    from kotivalo.clock import FakeClock
+    from kotivalo.events import Seen
+
+    clock = FakeClock(datetime(2026, 10, 21, 12, 0, tzinfo=UTC))
+    service = Service(Store(tmp_path), fake=True, clock=clock)
+    await service.start()
+    pushes = []
+    monkeypatch.setattr(service, "notify", lambda: pushes.append(clock.now()))
+    other = "00:00:00:00:00:00:00:01"
+    start = clock.now().timestamp()
+    try:
+        assert service.snapshot()["radio"]["heard"] is None
+        service._handle_event(Seen(LAMP))
+        clock.advance(20)
+        service._handle_event(Seen(other))
+        assert len(pushes) == 1  # the UI hears of it at most once a minute
+        clock.advance(45)
+        service._handle_event(Seen(LAMP))
+        assert len(pushes) == 2
+        snapshot = service.snapshot()
+        assert snapshot["radio"]["heard"] == start + 65
+        seen = {d["ieee"]: d["last_seen"] for d in snapshot["devices"]}
+        assert seen[LAMP] == start + 65 and seen[other] == start + 20
+    finally:
+        await service.stop()
+
+
+async def test_fake_mode_has_no_radio(service):
+    radio = service.snapshot()["radio"]
+    assert radio["fake"] is True
+    assert radio["model"] is None and radio["started"] is None

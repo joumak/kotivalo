@@ -20,7 +20,7 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
   |---|---|---|
   | FLOALT panel WS 60x60 (250–454 mired) | `50:32:5f:ff:fe:6e:e5:2c` | panel 1, a normal lamp |
   | FLOALT panel WS 60x60 | `d0:cf:5e:ff:fe:1f:a3:9e` | panel 2, the wake-up lamp; the VALLHORN switches it |
-  | VALLHORN motion sensor | `8c:65:a3:ff:fe:3d:d1:6d` | dark_lux 30, off after 5 min (the user's settings) |
+  | VALLHORN motion sensor | `8c:65:a3:ff:fe:3d:d1:6d` | dark_lux 30, off after 2 min (the user's settings) |
   | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | controls panel 1 |
   | TRÅDFRI 5-button remote (E1810) | `84:2e:14:ff:fe:41:64:b9` | firmware 2.3.014: group-only, so not working yet; its update failed (weak battery?) |
 - **Service:** systemd unit `kotivalo`, web UI on port 8080.
@@ -116,6 +116,10 @@ Everything else:
   - `configure_lamp` binds on/off, level and colour to the coordinator and configures reporting. Verified on the FLOALT: reports arrive.
   - `configure_sensor` (VALLHORN: occupancy, illuminance, battery; its OnOff output deliberately unbound) and `configure_remote` (OnOff, Level and Scenes outputs bound with raw ZDO `Bind_req`, since STYRBAR's descriptor lacks Scenes although its arrows use it) set up battery devices.
   - `EventBridge.handle_message` sees every frame before zigpy's cluster matching: it emits `Seen`, `Announce` (Device_annce: a lamp got mains power back) and `Button`.
+- **Radio status** (`Service.radio_status`; the Zigbee radio card under Settings):
+  - What the radio said about itself at start (`zigbee.radio_info`): maker, model, firmware, channel, PAN.
+  - `heard`: the last frame from each device, from `Seen` events. The Devices page's "seen" uses it too, since zigpy's `last_seen` is only read at start. Pushed at most once a minute (`HEARD_PUSH_S`).
+  - The UI calls the radio quiet after `QUIET_MINUTES` (10) without a frame from a paired device (`lib/radio.ts`), and shows a banner on every page. That catches a radio that answers us but no longer receives (the XStick after resetting itself).
 - **Lamp state** is what we commanded, corrected by reports (`LightController.apply_report`, ignored for 5 s after our own command: the echo guard) and by polling (every 60 s, backing off to 10 min while a lamp doesn't answer; unreachable is not off). `xbee_config.py` uses raw serial frames, stdlib only.
 - **`app.py` (`Service`)** wires everything together. `web.py` is a thin JSON API.
   - Per-lamp level/warmth go through `LatestWins` (`light.py`), so a dragged slider never queues behind the radio.

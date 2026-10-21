@@ -37,7 +37,7 @@ Done, in order:
   - **Best guess:** fast polling, sent once at the start rather than per retry, is what makes it ask.
 - **Next:** retry with the new radio (feature 4). The same applies to an E1743 on/off switch on old firmware.
 
-**On the Sonoff (2026-10-21):** a second E1810 ("5f6d", also firmware 2.3.014) joined and set up fine, but its presses aren't heard. The first one ("64b9") is misplaced and not re-paired. **Next:** read the remote's group (LightLink `get_group_identifiers`) and add the coordinator to it (the EZSP multicast table, through zigpy's group API). The firmware update can be retried too.
+**On the Sonoff (2026-10-21):** both E1810s (the first, "64b9", and a second, "5f6d", both firmware 2.3.014) joined and set up fine, but their presses aren't heard. **Next:** read the remote's group (LightLink `get_group_identifiers`) and add the coordinator to it (the EZSP multicast table, through zigpy's group API). The firmware update can be retried too.
 
 ### 2. Every frame arrives four times
 
@@ -137,7 +137,7 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 - **Firmware:** EmberZNet 7.4.5, fine as shipped.
 - **Network:** formed on channel 25. An energy scan found 25 among the quieter channels. 26 is the busiest, and Wi-Fi channel 6 shows on 17–18.
 - **Tested:** a second instance of the service (port 8091, its own state directory) started on it, opened and closed pairing, and stopped cleanly.
-- **Switched over 2026-10-21, 21:45–22:07:** 13 of the 14 devices re-paired (8 mains, 5 battery; the 14th, an E1810, is misplaced), plus a second E1810; each set up within seconds of joining. The XStick is unplugged.
+- **Switched over 2026-10-21, 21:45–22:37:** all 14 devices re-paired (8 mains, 6 battery; the last E1810 at 22:36, once found), plus a second E1810 and a new SNZB-06P presence sensor; each set up within seconds of joining. The XStick is unplugged.
 - **Next:**
   - the E1810 (known issue 1)
   - once the Sonoff has run well for a few days: delete `/home/pi/sonoff-test` (a test state directory) and, later, the XStick's kept files

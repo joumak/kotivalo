@@ -297,7 +297,7 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
 
 The code talks to zigpy's generic API, so a new radio is a settings change. But a new radio means a new network, and **every device must be paired again**. Names, rooms, fixtures, motion and remote rules and the wake-up lamp are kept, because they are saved by device address.
 
-**The SONOFF Dongle Plus MG24** replaced the XStick on 2026-10-21. Re-pairing the 13 devices at hand took about 25 minutes.
+**The SONOFF Dongle Plus MG24** replaced the XStick on 2026-10-21. Re-pairing all 14 devices took about 25 minutes.
 - Firmware EmberZNet 7.4.5 as shipped, 115200 baud: no update needed.
 - Network formed: channel 25, PAN 0xAE6B. zigpy's backups of an EZSP network include the network key, so a later stick swap can restore it without re-pairing.
 

@@ -24,8 +24,7 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
   | SONOFF SNZB-06P presence sensor (mmWave), "SNZB-06P 637c" | `60:83:da:ff:fe:e1:63:7c` | new 2026-10-21, no rule yet. A mains-powered router; occupancy only (no lux: its bright/dim is in Sonoff's 0xFC11). Refuses a reporting setup but reports occupancy on its own; empty about 40 s after leaving |
   | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | firmware 1.0.024 |
   | RODRET f066, 2bc4, f068 | `34:8d:13:ff:fe:ff:f0:66`, `08:fd:52:ff:fe:ae:2b:c4`, `34:8d:13:ff:fe:ff:f0:68` | firmware 1.0.57 |
-  | TRÅDFRI 5-button remote (E1810) "5f6d" | `84:2e:14:ff:fe:fb:5f:6d` | firmware 2.3.014: group-only, so its presses aren't heard yet; no lamp yet |
-  | TRÅDFRI 5-button remote (E1810) "64b9" | `84:2e:14:ff:fe:41:64:b9` | misplaced, not re-paired; its rule (NYMANE) is kept. Its update failed on the XStick (weak battery?) |
+  | TRÅDFRI 5-button remotes (E1810) "64b9" and "5f6d" | `84:2e:14:ff:fe:41:64:b9`, `84:2e:14:ff:fe:fb:5f:6d` | firmware 2.3.014: group-only, so their presses aren't heard yet. 64b9 has the NYMANE rule (its update failed on the XStick: weak battery?); 5f6d, new 2026-10-21, has no lamp yet |
 - **Service:** systemd unit `kotivalo`, web UI on port 8080.
 - **State:** `/var/lib/kotivalo` (`settings.json`, `state.json`, `zigbee.db`).
 - **Laptop:** dev venv uses Python **3.11.0rc1**, which is not the Pi's 3.13. Code must work on both.

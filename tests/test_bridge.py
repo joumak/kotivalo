@@ -312,3 +312,42 @@ def test_what_the_radio_says_about_itself():
         "channel": 25,
         "pan_id": "0xAE6B",
     }
+
+
+@pytest.mark.parametrize(
+    ("bind", "reporting", "set_up"),
+    [
+        ("SUCCESS", "SUCCESS", True),
+        # the SNZB-06P: bound, refuses a reporting setup, reports changes on its own
+        ("SUCCESS", "UNSUP_CLUSTER_COMMAND", True),
+        ("SUCCESS", "UNREPORTABLE_ATTRIBUTE", False),
+        ("NOT_SUPPORTED", "UNSUP_CLUSTER_COMMAND", False),
+    ],
+)
+async def test_a_sensor_that_reports_on_its_own_is_set_up(bind, reporting, set_up):
+    from collections import namedtuple
+    from types import SimpleNamespace
+
+    from zigpy.zcl import foundation
+    from zigpy.zdo.types import Status as ZdoStatus
+
+    from kotivalo import zigbee
+
+    Attribute = namedtuple("Attribute", "name")
+
+    class Cluster:
+        cluster_id = zigbee.OCCUPANCY_CLUSTER
+        name = "Occupancy Sensing"
+
+        async def bind(self):
+            return [getattr(ZdoStatus, bind)]
+
+        def find_attribute(self, name):
+            return Attribute(name)
+
+        async def configure_reporting_multiple(self, config):
+            return {attr: getattr(foundation.Status, reporting) for attr in config}
+
+    device = SimpleNamespace(ieee="60:83:da:ff:fe:e1:63:7c")
+    reports = {zigbee.OCCUPANCY_CLUSTER: {"occupancy": (0, 300, 1)}}
+    assert await zigbee._configure(device, [Cluster()], reports, 1) is set_up

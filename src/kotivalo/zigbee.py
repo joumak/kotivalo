@@ -251,6 +251,12 @@ SENSOR_REPORTING = {
 REMOTE_REPORTING = {POWER_CLUSTER: SENSOR_REPORTING[POWER_CLUSTER]}
 CONFIGURE_TIMEOUT_S = 15
 SLEEPY_TIMEOUT_S = 30  # a sleepy device answers only while awake
+# A device that takes the bind but refuses a reporting setup with one of these reports
+# changes on its own (Sonoff's SNZB-06P presence sensor): it is set up all the same.
+REPORTS_ON_ITS_OWN = {
+    foundation.Status.UNSUP_CLUSTER_COMMAND,
+    foundation.Status.UNSUP_GENERAL_COMMAND,
+}
 ZDO_DEVICE_ANNOUNCE = 0x0013
 
 
@@ -352,7 +358,10 @@ async def _configure(device, clusters, reporting: dict, timeout_s: float) -> boo
             continue
         bind_status = bound[0] if bound else None
         failed = {a.name: s for a, s in result.items() if s != foundation.Status.SUCCESS}
-        if bind_status != ZdoStatus.SUCCESS or failed:
+        on_its_own = bool(failed) and set(failed.values()) <= REPORTS_ON_ITS_OWN
+        if bind_status == ZdoStatus.SUCCESS and on_its_own:
+            LOGGER.info("Device %s %s: bound, reports on its own", device.ieee, cluster.name)
+        elif bind_status != ZdoStatus.SUCCESS or failed:
             LOGGER.warning(
                 "Device %s %s: bind %s, reporting not accepted for %s",
                 device.ieee,

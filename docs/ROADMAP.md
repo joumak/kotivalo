@@ -155,7 +155,7 @@ The laptop uses 3.11.0rc1, the Pi 3.13. Recreate the dev venv with `uv` and Pyth
 - **Brightness** can't be preset, with or without ExecuteIfOff.
 - **Colour temperature** is stored, but by eye the lamp still comes on at its previous warmth, then shifts to the stored one. That's the same as today.
 
-So the current parking is as good as it gets. The only open route is newer FLOALT firmware, if it supports ExecuteIfOff. A lamp OTA is risky over the XStick, and lamps must never update automatically (see CLAUDE.md).
+So the current parking is as good as it gets. The only open route is newer FLOALT firmware (IKEA has 2.3.087), if it supports ExecuteIfOff. Lamps must never update automatically (see CLAUDE.md), and updating rules out the dimming patch (feature 8).
 
 ### 6. Weather ideas
 
@@ -166,6 +166,39 @@ So the current parking is as good as it gets. The only open route is newer FLOAL
 
 - A local CA (mkcert) would enable the Wake Lock API, so the wall panel's screen stays on without kiosk apps.
 - It would also make the UI installable as an app (PWA).
+
+### 8. A dimmer minimum for the FLOALT panels (investigated 2026-10-22)
+
+**Today:** level 2, the lowest we send, is a 5 % PWM duty: too bright for a night light or the first minutes of a sunrise. Nothing sent over Zigbee changes that.
+
+**What sets it:** at start the panel firmware builds a level table, a geometric curve over 253 steps:
+- **Bottom:** 5 % of the PWM period, at level 1.
+- **Top:** full, at level 254.
+- **PWM:** TIMER1 at 600 Hz (TOP 63999 at 38.4 MHz).
+
+**A published patch:** zw's, for the FLOALT 30x30 (github.com/zw/TRADFRI-Hacking, `hacks/L1527`; trmm.net/Ikea did the same on the TRÅDFRI 10 W driver). It lowers the floor to 32 counts (0.05 %) on firmware 1.2.217, which all our panels run (OTA file version 0x12217572).
+- **The change:** 14 bytes. The floor calculation (`ldr`, `adds`, `add.w`, `movs`, `udiv`) becomes five NOPs and `mov.w r0, #32`.
+- **Leave out its other change:** it fixes the Step commands' step size at 8, which matters only for IKEA remotes bound straight to the lamp.
+- **Which image:** the 60x60 runs IKEA's `driver-hp` image ("FLOALT panel WS 60x60" is compiled into it); the 30x30 runs `driver-lp`.
+  - The patch is for lp, with the floor code at 0x92dc. hp has the identical code at 0x92d0.
+  - The 30x90 is in neither image's strings. Read its OTA image type (attribute 0x0008) first.
+- **The floor is our choice:** 32 counts (0.05 %) is what zw and trmm used, and both saw stripes and occasional strobing on the FLOALT at the very lowest levels. 320 (0.5 %) would be a gentler first try.
+
+**Two ways to put it on a panel:**
+- **SWD** (zw's way):
+  1. Open the driver box. Solder 4 wires (VCC, PF1 = SWDIO, PF0 = SWCLK, GND) to the module.
+  2. Dump the 256 KB flash, and check that its code matches IKEA's 1.2.217 image.
+  3. Patch it and write back only the changed page. Writing the dump back undoes it.
+  - **Needs a probe,** such as a Pi Pico running debugprobe.
+  - **If the debug interface is locked, stop:** an erase would lose IKEA's firmware.
+- **Over the air** (nobody has published doing this): patch IKEA's 1.2.217 hp image and serve it through zigpy as a one-off update. zigpy strips IKEA's signature wrapper, so the panel sees a plain EBL.
+  - **Checksums:** its end CRC is a standard CRC-32 (verified on IKEA's images) and can be recomputed.
+  - **Unknown:** whether the bootloader checks the address table's image CRC (not reproduced). zw's SWD-patched panel boots with it stale.
+  - **Risk:** a bad image would leave the panel needing SWD to recover, and the FLOALT is discontinued.
+
+**What Kotivalo would need:** a per-lamp flag that remaps UI percentages, motion levels and the sunrise ramp onto the new range. The patched curve makes *every* level below 254 dimmer: stock level 2 equals patched level ~155 (with the floor at 0.05 %).
+
+**Consequence:** a patched panel stays on 1.2.217 for good. IKEA's 2.3.087 rewrote this code, so the patch doesn't carry over to it.
 
 ---
 

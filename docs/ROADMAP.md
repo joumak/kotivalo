@@ -200,6 +200,13 @@ So the current parking is as good as it gets. The only open route is newer FLOAL
 
 **Consequence:** a patched panel stays on 1.2.217 for good. IKEA's 2.3.087 rewrote this code, so the patch doesn't carry over to it.
 
+**Decided with the user (2026-10-22), postponed until they have the tools:**
+- **First, by cable, on one 60x60** (panel 2). Its debug lock is the one thing that could make an over-the-air failure permanent.
+- **If unlocked:** over the air for the other panels. A failed update is fixable by cable: write IKEA's 1.2.217 program back, since the pairing area isn't touched.
+- **If locked:** stop, and drop the over-the-air route.
+- **Probe:** a Raspberry Pi Pico running Raspberry Pi's debugprobe, or the Kotivalo Pi's GPIO with OpenOCD.
+- **When we resume:** write the step-by-step for the chosen probe, and a script that checks the panel's dump against IKEA's image before anything is written.
+
 ---
 
 ## Hardening (later)

@@ -57,6 +57,7 @@ export const en = {
     motionControls: 'The motion sensor switches this lamp',
     motionByHand: 'Switched on by hand, motion leaves it alone',
     motionWaits: 'Switched off by hand, motion waits for an empty room',
+    motionBright: 'Someone is in the room, but it is bright: motion leaves this lamp off',
     letMotionControl: 'Let motion control it',
     handOnly: 'Hand only',
     handOnlyHelp: 'Motion and timers leave this lamp alone until you switch this off.',

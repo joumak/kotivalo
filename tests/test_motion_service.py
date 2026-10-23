@@ -80,6 +80,9 @@ async def test_bright_room_stays_dark(setup):
     service.events.put_nowait(Motion(SENSOR, True))
     await settle(service)
     assert lamp_state(service).on is not True
+    state = await (await client.get("/api/state")).json()
+    lamp = next(x for x in state["lights"] if x["ieee"] == LAMP)
+    assert lamp["motion_bright"] is True  # the UI says why it stays off
 
 
 async def test_manual_wins_over_motion(setup):

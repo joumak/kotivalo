@@ -101,6 +101,8 @@ Set up per sensor under **Laitteet → (sensor) → settings**:
 - **the lamps it switches.** A lamp can have only one sensor.
 - **"only when darker than"**, with the live lux reading. The lux value counts only when the sensor's lamps have been off for a minute, so the lamp's own light doesn't count.
   - A sensor that only tells bright from dim (the SONOFF SNZB-06P) offers **"Vain hämärässä"** ("only when it is dim") instead. It measures the light as it sees someone come in, and its lamps wait up to a second for that reading.
+  - The sensor's own threshold can't be changed, and the SNZB-06P calls an overcast October afternoon "bright". If its lamps stay off by day when you'd want them, choose **"Aina"** (always).
+  - While the room counts as bright, the lamp's ⚙ says so: "Huoneessa on joku, mutta siellä on valoisaa".
 - **the off time:** switch off once the room has been empty this long.
 - **day and night brightness and warmth.** The default night light is 5 %, 2200 K.
 
@@ -304,7 +306,8 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
 - **Motion doesn't switch a lamp on:** read the lamp's status line.
   - "Käsin päällä" means you switched it on by hand, and motion leaves it alone.
   - "Pois, liike tauolla" means you switched it off by hand, and motion is paused.
-  - "Palauta liikeohjaus" hands the lamp back to the sensor. Otherwise the room may be bright: check the lux value (or "valoisaa", bright) in the sensor's settings.
+  - "Palauta liikeohjaus" hands the lamp back to the sensor.
+  - "Huoneessa on joku, mutta siellä on valoisaa" (in ⚙) means the sensor finds the room bright. Check the lux value (or "valoisaa", bright) in the sensor's settings, or choose "Aina" there.
 - **A remote's presses don't show on its row:**
   - It may still be setting up: press its pairing button 4 times near a lamp.
   - On old firmware, update it (see Remotes).

@@ -285,6 +285,19 @@ class Behaviour:
             return f"the room is bright ({memo.lux} lx >= {rule.dark_lux} lx)"
         return None
 
+    def held_by_light(self, ieee: str, now: datetime, night: bool) -> bool:
+        """Its sensor sees someone, but the room is bright: motion leaves this lamp off."""
+        lamp, rule = self.lamp(ieee), self.rule_for_lamp(ieee)
+        if rule is None or night or lamp.owner != "off" or lamp.hand_only:
+            return False
+        memo = self.sensor(rule.sensor)
+        return (
+            memo.occupied
+            and memo.light_due is None
+            and not self.motion_paused(ieee, now)
+            and not self._dark(rule, memo)
+        )
+
     # --- time ----------------------------------------------------------------------
 
     def tick(self, now: datetime) -> list[Action]:

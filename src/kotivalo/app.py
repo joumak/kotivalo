@@ -1796,13 +1796,17 @@ class Service:
         }
 
     def _owner_fields(self, ieee: str) -> dict:
-        memo = self.behaviour.lamp(ieee)
+        memo, now = self.behaviour.lamp(ieee), self.clock.now()
+        has_motion = self.behaviour.rule_for_lamp(ieee) is not None
         return {
             "owner": memo.owner,
             "owner_until": memo.off_at.isoformat() if memo.off_at else None,
             "profile": memo.profile,
-            "has_motion": self.behaviour.rule_for_lamp(ieee) is not None,
-            "motion_paused": self.behaviour.motion_paused(ieee, self.clock.now()),
+            "has_motion": has_motion,
+            "motion_paused": self.behaviour.motion_paused(ieee, now),
+            "motion_bright": has_motion
+            and memo.owner == "off"
+            and self.behaviour.held_by_light(ieee, now, self._night(now)),
             "hand_only": memo.hand_only,
         }
 

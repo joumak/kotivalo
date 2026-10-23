@@ -39,6 +39,7 @@ export interface Lamp {
   profile: 'day' | 'night' | null // motion: which profile switched it on
   has_motion: boolean // a motion sensor controls it
   motion_paused: boolean // switched off by hand: motion waits until the room has been empty
+  motion_bright: boolean // its sensor sees someone, but the room is bright: motion leaves it off
   hand_only: boolean // "Vain käsin": nothing automatic changes it until released (an alarm ends it)
   members: string[] // a fixture's bulbs; empty for a single bulb
 }

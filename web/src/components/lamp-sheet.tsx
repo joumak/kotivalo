@@ -209,14 +209,19 @@ function MotionStatus({ lamp }: { lamp: Lamp }) {
   const actions = useActions()
   const mode = motionMode(lamp)
   if (!mode) return null
-  const text = { motion: t.lamp.motionControls, byHand: t.lamp.motionByHand, waits: t.lamp.motionWaits }[mode]
+  const text = {
+    motion: t.lamp.motionControls,
+    byHand: t.lamp.motionByHand,
+    waits: t.lamp.motionWaits,
+    bright: t.lamp.motionBright,
+  }[mode]
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <p className="flex grow basis-48 items-start gap-2 text-sm text-muted-foreground">
         <Activity aria-hidden className="mt-0.5 size-4 shrink-0" />
         {text}
       </p>
-      {mode !== 'motion' && (
+      {(mode === 'byHand' || mode === 'waits') && (
         <Button variant="outline" onClick={() => void actions.lamp(lamp.ieee, 'auto')}>
           {t.lamp.letMotionControl}
         </Button>

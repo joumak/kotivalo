@@ -71,11 +71,15 @@ def test_a_bright_dim_sensor_decides_with_the_reading_that_follows_occupied():
     assert b.motion(SENSOR, True, at(10), night=False) == []  # its reading follows
     assert b.next_deadline() == at(10) + timedelta(seconds=1)
     assert "waiting" in b.why_not_on(LAMP, SENSOR, at(10), night=False)
+    assert not b.held_by_light(LAMP, at(10), night=False)  # not decided yet
     assert b.brightness(SENSOR, True, at(10.001), night=False) == []  # daylight now
     assert b.lamp(LAMP).owner == "off"
     assert "says bright" in b.why_not_on(LAMP, SENSOR, at(10.001), night=False)
+    assert b.held_by_light(LAMP, at(10.001), night=False)  # shown in the UI
+    assert not b.held_by_light(LAMP, at(10.001), night=True)
     assert b.tick(at(11)) == []
     b.motion(SENSOR, False, at(12), night=False)
+    assert not b.held_by_light(LAMP, at(12), night=False)  # nobody there
     b.motion(SENSOR, True, at(60), night=False)
     assert b.brightness(SENSOR, False, at(60.001), night=False) == [SwitchOn(LAMP, 254, 2700)]
 

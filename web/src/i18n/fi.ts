@@ -54,6 +54,7 @@ export const fi: Messages = {
     motionControls: 'Liiketunnistin ohjaa tätä valoa',
     motionByHand: 'Sytytetty käsin, liiketunnistin ei ohjaa',
     motionWaits: 'Sammutettu käsin, liiketunnistin odottaa tyhjää huonetta',
+    motionBright: 'Huoneessa on joku, mutta siellä on valoisaa: liiketunnistin ei sytytä valoa',
     letMotionControl: 'Palauta liikeohjaus',
     handOnly: 'Vain käsin',
     handOnlyHelp: 'Liike ja ajastukset eivät muuta tätä valoa, ennen kuin kytket tämän pois.',

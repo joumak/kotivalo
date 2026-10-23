@@ -56,10 +56,11 @@ export function lampStatus(lamp: Lamp, snapshot: Snapshot, t: Messages): string 
  * did and motion leaves it alone ('byHand': on by hand, 'waits': off by hand, motion
  * waits for an empty room). Null when there is no sensor or a sunrise runs the lamp.
  */
-export function motionMode(lamp: Lamp): 'motion' | 'byHand' | 'waits' | null {
+export function motionMode(lamp: Lamp): 'motion' | 'byHand' | 'waits' | 'bright' | null {
   if (!lamp.has_motion || lamp.owner === 'sunrise' || lamp.hand_only) return null
   if (lamp.owner === 'manual') return 'byHand'
-  return lamp.owner === 'off' && lamp.motion_paused ? 'waits' : 'motion'
+  if (lamp.owner === 'off' && lamp.motion_paused) return 'waits'
+  return lamp.owner === 'off' && lamp.motion_bright ? 'bright' : 'motion'
 }
 
 /** The motion sensor whose rule switches this lamp, if any. */

@@ -27,6 +27,7 @@ const lamp = (state: Partial<Lamp['state']>, extra: Partial<Lamp> = {}): Lamp =>
   profile: null,
   has_motion: false,
   motion_paused: false,
+  motion_bright: false,
   hand_only: false,
   members: [],
   ...extra,
@@ -88,6 +89,7 @@ describe('lamps with a motion sensor', () => {
     expect(motionMode(lamp({}, { owner: 'manual', has_motion: true }))).toBe('byHand')
     expect(motionMode(lamp({ on: false }, { owner: 'off', has_motion: true, motion_paused: true }))).toBe('waits')
     expect(motionMode(lamp({ on: false }, { owner: 'off', has_motion: true }))).toBe('motion')
+    expect(motionMode(lamp({ on: false }, { owner: 'off', has_motion: true, motion_bright: true }))).toBe('bright')
     expect(motionMode(lamp({}, { owner: 'motion', has_motion: true }))).toBe('motion')
     expect(motionMode(lamp({}, { owner: 'sunrise', has_motion: true }))).toBeNull()
   })

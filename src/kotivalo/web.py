@@ -194,6 +194,11 @@ async def put_night(request: web.Request) -> web.Response:
     return ok(request)
 
 
+async def put_daylight(request: web.Request) -> web.Response:
+    service_of(request).update_daylight(await request.json())
+    return ok(request)
+
+
 # --- wake-up, pairing ---------------------------------------------------------------
 
 
@@ -254,6 +259,7 @@ def make_web_app(service) -> web.Application:
     router.add_delete("/api/devices/{ieee}", delete_device)
     router.add_put("/api/wakeup", put_wakeup)
     router.add_put("/api/night", put_night)
+    router.add_put("/api/daylight", put_daylight)
     router.add_put("/api/motion/{ieee}", put_motion)
     router.add_delete("/api/motion/{ieee}", delete_motion)
     router.add_put("/api/remotes/{ieee}", put_remote)

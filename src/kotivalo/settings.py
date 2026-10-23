@@ -29,6 +29,10 @@ RADIO_TYPES = ("xbee", "ezsp", "znp")
 DEVICE_KINDS = ("light", "motion", "remote", "other", "fixture")
 POWER_ON = ("on", "previous")  # what a lamp does when mains power returns
 FAKE_PREFIX = "00:00:00:00:00:00:00:"  # `serve --fake` devices: never saved
+# How far the daylight points may lie from sunrise and sunset (minutes): a Finnish winter
+# day is under 6 hours, a summer one 19.
+MORNING_BEFORE_MIN, MORNING_AFTER_MIN = 180, 360
+EVENING_BEFORE_MIN, EVENING_AFTER_MIN = 360, 180
 
 
 class SettingsError(ValueError):
@@ -183,6 +187,34 @@ class MotionRule:
 
 
 @dataclass
+class DaylightSettings:
+    """Lamps whose warmth follows the sun (daylight.py): warm around sunrise and sunset,
+    cool by day. The points are minutes from that day's sunrise and sunset."""
+
+    lights: list[str] = field(default_factory=list)
+    warm_kelvin: int = 2700
+    cool_kelvin: int = 4000
+    morning_start: int = 0  # from sunrise: starts cooling
+    morning_end: int = 120  # from sunrise: fully cool
+    evening_start: int = -120  # from sunset: starts warming
+    evening_end: int = 0  # from sunset: fully warm
+
+    def validate(self) -> None:
+        if not 1500 <= self.warm_kelvin < self.cool_kelvin <= 6500:
+            raise SettingsError("Daylight: need 1500 <= warm K < cool K <= 6500")
+        if not -MORNING_BEFORE_MIN <= self.morning_start <= self.morning_end <= MORNING_AFTER_MIN:
+            raise SettingsError(
+                f"Daylight morning: need -{MORNING_BEFORE_MIN} <= start <= end"
+                f" <= {MORNING_AFTER_MIN} minutes from sunrise"
+            )
+        if not -EVENING_BEFORE_MIN <= self.evening_start <= self.evening_end <= EVENING_AFTER_MIN:
+            raise SettingsError(
+                f"Daylight evening: need -{EVENING_BEFORE_MIN} <= start <= end"
+                f" <= {EVENING_AFTER_MIN} minutes from sunset"
+            )
+
+
+@dataclass
 class RemoteBinding:
     remote: str = ""
     lights: list[str] = field(default_factory=list)
@@ -200,6 +232,7 @@ class Settings:
     motion: list[MotionRule] = field(default_factory=list)
     remotes: list[RemoteBinding] = field(default_factory=list)
     weather: WeatherSettings = field(default_factory=WeatherSettings)
+    daylight: DaylightSettings = field(default_factory=DaylightSettings)
     web_token: str | None = None  # if set, the web API requires it
 
     @property
@@ -223,6 +256,7 @@ class Settings:
         _check_time(self.night.start, "Night start")
         _check_time(self.night.end, "Night end")
         self.weather.validate()
+        self.daylight.validate()
         member_of: dict[str, str] = {}
         for ieee, device in self.devices.items():
             if device.kind not in DEVICE_KINDS:
@@ -337,6 +371,8 @@ class State:
     # Each bulb's last known brightness and warmth {ieee: {level, mireds}}: shown for a lamp
     # that can't be read (e.g. switched off at the wall), also after a restart.
     last_known: dict[str, Any] = field(default_factory=dict)
+    # Lamps following daylight whose warmth was set by hand: left alone until switched off.
+    daylight_paused: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> State:

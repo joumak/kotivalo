@@ -26,6 +26,9 @@ async function reset(request: APIRequestContext) {
   await request.delete(`/api/motion/${SENSOR}`)
   await request.delete(`/api/remotes/${REMOTE}`)
   await request.put('/api/weather', { data: { lat: null, lon: null } })
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'daylight', value: 0 } })
+  const curve = { morning_start: 0, morning_end: 120, evening_start: -120, evening_end: 0 }
+  await request.put('/api/daylight', { data: { warm_kelvin: 2700, cool_kelvin: 4000, ...curve } })
   await request.put(`/api/devices/${SENSOR}`, { data: { name: 'Eteisen tunnistin', room: 'Eteinen' } })
   const alarms = Array.from({ length: 7 }, () => ({ enabled: false, time: '07:00' }))
   await request.put('/api/wakeup', { data: { alarms } })
@@ -254,6 +257,22 @@ test('hand only keeps motion away from a lamp until released', async ({ page, re
   await page.getByRole('switch', { name: 'Vain käsin' }).click()
   await expect.poll(async () => (await lamp(request)).state.on).toBe(true) // back to motion
   await request.post('/api/fake/event', { data: { type: 'motion', ieee: SENSOR, value: false } })
+})
+
+test('a lamp follows daylight, and the curve is set in Settings', async ({ page, request }) => {
+  await request.put('/api/weather', { data: { name: 'Espoo', lat: 60.21, lon: 24.66 } })
+  await open(page, '#/lights')
+  await page.getByRole('button', { name: 'Lukuvalo: säädöt' }).click()
+  await page.getByRole('switch', { name: 'Seuraa päivänvaloa' }).click()
+  await expect.poll(async () => (await state(request)).daylight.lights).toEqual([LAMP])
+  await expect(page.getByText(/^Sävy nyt \d+ K\.$/)).toBeVisible()
+
+  await open(page, '#/settings')
+  await expect(page.getByText(/^Tänään aurinko nousee/)).toBeVisible()
+  await page.getByRole('slider', { name: 'Alkaa viiletä' }).focus()
+  await page.keyboard.press('ArrowRight') // 15 min later
+  await page.getByRole('button', { name: 'Tallenna päivänvalo' }).click()
+  await expect.poll(async () => (await state(request)).daylight.morning_start).toBe(15)
 })
 
 test('bulbs grouped into a fixture act as one lamp', async ({ page, request }) => {

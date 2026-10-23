@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { useActions } from '@/api/actions'
 import { useLive } from '@/api/live'
 import type { DeviceInfo, DeviceKind, MotionRule, Profile, Remote, Sensor, Snapshot } from '@/api/types'
+import { Field, NumberSelect } from '@/components/fields'
 import { PageTitle } from '@/components/shell'
 import {
   AlertDialog,
@@ -529,7 +530,13 @@ function MotionDialog({ sensor, snapshot, onClose }: { sensor: Sensor; snapshot:
             </Field>
           </div>
 
-          <ProfileFields title={t.sensor.day} profile={rule.day} onChange={(day) => change({ day })} t={t} />
+          <ProfileFields
+            title={t.sensor.day}
+            hint={rule.lights.some((l) => snapshot.daylight.lights.includes(l)) ? t.daylight.motionDay : undefined}
+            profile={rule.day}
+            onChange={(day) => change({ day })}
+            t={t}
+          />
           <ProfileFields
             title={t.sensor.night}
             hint={t.sensor.nightHint(formatClockTime(snapshot.night.start, t.locale), formatClockTime(snapshot.night.end, t.locale))}
@@ -583,43 +590,7 @@ function ProfileFields({
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      {children}
-      {hint && <span className="text-sm text-muted-foreground">{hint}</span>}
-    </div>
-  )
-}
 
-function NumberSelect({
-  value,
-  options,
-  label,
-  onChange,
-}: {
-  value: number
-  options: number[]
-  label: (value: number) => string
-  onChange: (value: number) => void
-}) {
-  const all = options.includes(value) ? options : [...options, value].sort((a, b) => a - b)
-  return (
-    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
-      <SelectTrigger className="w-full">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {all.map((option) => (
-          <SelectItem key={option} value={String(option)}>
-            {label(option)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
 
 function RenameDialog({ device, rooms, onClose }: { device: DeviceInfo; rooms: string[]; onClose: () => void }) {
   const t = useT()

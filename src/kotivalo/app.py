@@ -9,7 +9,7 @@ import secrets
 import signal
 import time
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 
 import aiohttp
@@ -18,6 +18,7 @@ from aiohttp import web
 from kotivalo import systemd
 from kotivalo.behaviour import Behaviour, SwitchOff, SwitchOn, night_now
 from kotivalo.clock import Clock, ntp_synchronized
+from kotivalo.daylight import daylight_mireds, sun_times
 from kotivalo.events import (
     Announce,
     Battery,
@@ -100,6 +101,16 @@ CONFIGURE_RETRY_S = 300  # a sleepy device that failed setup is retried at most 
 MASTER_MAX_DELAY_S = 3600  # a delayed master-off
 MASTER_LATE_S = 600  # a delayed master-off overdue by more (the service was down) is dropped
 HEARD_PUSH_S = 60  # "last heard" times reach the UI at most this often (lamps answer every minute)
+DAYLIGHT_TICK_S = 60  # a lamp following daylight: its warmth is checked this often...
+DAYLIGHT_STEP_MIREDS = 2  # ...and set once this far off (in small steps: no CT transitions)
+DAYLIGHT_FIELDS = (
+    "warm_kelvin",
+    "cool_kelvin",
+    "morning_start",
+    "morning_end",
+    "evening_start",
+    "evening_end",
+)
 
 
 def poll_delay(failures: int) -> float:
@@ -212,6 +223,7 @@ class Service:
         self.fetch_weather = MetClient().fetch  # (lat, lon) -> (json, expires); tests replace it
         self._weather_changed = asyncio.Event()
         self._master_changed = asyncio.Event()
+        self._daylight_changed = asyncio.Event()
         # Snapshots are numbered, so the UI can ignore one that arrives after a newer one
         # (an action's response racing the live stream); the boot id covers a restart.
         self._boot = secrets.token_hex(4)
@@ -286,6 +298,7 @@ class Service:
         self._spawn(self._weather_loop())
         self._spawn(self._last_known_loop())
         self._spawn(self._master_timer())
+        self._spawn(self._daylight_loop())
         if self.zigbee is not None:
             self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
             self._spawn(self._poll_sensors())
@@ -665,6 +678,10 @@ class Service:
         if on is not None and on != was_on:
             self.behaviour.lamp_state(ieee, on, self.clock.now())
             self._behaviour_saved()
+            if on:  # e.g. its wall switch: on at its old warmth
+                self._daylight_changed.set()
+            else:
+                self._pause_daylight(ieee, False)
 
     def _reconcile_owners(self) -> None:
         """At startup: owners from state.json against what the lamps actually do."""
@@ -702,12 +719,15 @@ class Service:
 
     async def _switch_on(self, ieee: str, level: int, kelvin: int) -> None:
         controller = self.registry.controller(ieee)
+        night = self.behaviour.lamp(ieee).profile == "night"  # the night light keeps its own
+        mireds = (None if night else self._daylight_on(ieee)) or kelvin_to_mired(kelvin)
         async with controller.lock:
             await controller.set_level(level, 0)
             await asyncio.sleep(MOTION_ON_CT_DELAY_S)
-            await controller.set_ct(kelvin_to_mired(kelvin))
+            await controller.set_ct(mireds)
 
     async def _switch_off(self, ieee: str) -> None:
+        self._pause_daylight(ieee, False)
         controller = self.registry.controller(ieee)
         async with controller.lock:
             await controller.off(**self._park(ieee, controller))
@@ -923,6 +943,11 @@ class Service:
                 raise SettingsError("hand_only needs a value (1 or 0)")
             await self._set_hand_only(ieee, controller, bool(value))
             return
+        if action == "daylight":
+            if value is None:
+                raise SettingsError("daylight needs a value (1 or 0)")
+            self._set_daylight(ieee, controller, bool(value))
+            return
         run = self.manager.active
         in_sunrise = run is not None and run.light == ieee
         if ieee == self.settings.wakeup.light:
@@ -939,9 +964,12 @@ class Service:
         self._behaviour_saved()
         if action in ("level", "kelvin"):
             self._remember_manual(ieee, action, int(value))
+            if action == "kelvin":
+                self._pause_daylight(ieee, True)
             await self._live_sender(ieee).submit(action, int(value))
             return
         if action == "off":  # fades out in the background; shown as off at once
+            self._pause_daylight(ieee, False)
             lit = controller.switching_off()
             self._spawn_logged(self._fade_off(ieee, lit), f"Switching off {ieee}")
             return
@@ -963,7 +991,7 @@ class Service:
         await controller.set_level(last.level, 0)
         if controller.caps.supports_ct:
             await asyncio.sleep(MOTION_ON_CT_DELAY_S)
-            await controller.set_ct(kelvin_to_mired(last.kelvin))
+            await controller.set_ct(self._daylight_on(ieee) or kelvin_to_mired(last.kelvin))
 
     async def _set_hand_only(self, ieee: str, controller: LightController, on: bool) -> None:
         """ "Vain käsin": nothing automatic changes the lamp until released. Releasing hands
@@ -991,6 +1019,134 @@ class Service:
         LOGGER.info("Motion controls %s again (owner %s)", ieee, self.behaviour.lamp(ieee).owner)
         self._behaviour_saved()
         self._run_actions(actions)
+
+    # --- daylight ----------------------------------------------------------------------
+
+    def _set_daylight(self, ieee: str, controller: LightController, on: bool) -> None:
+        """Follow daylight (again, if warmth set by hand paused it), or stop following."""
+        if on and not controller.caps.supports_ct:
+            raise SettingsError("This lamp has no warmth to follow daylight with")
+        lights = self.settings.daylight.lights
+        self._pause_daylight(ieee, False)
+        if on == (ieee in lights):
+            self._daylight_changed.set()  # e.g. resuming after warmth set by hand
+            return
+        if on:
+            lights.append(ieee)
+        else:
+            lights.remove(ieee)
+        self._save_settings()
+        LOGGER.info("Lamp %s: %s daylight", ieee, "follows" if on else "no longer follows")
+        self._daylight_changed.set()
+
+    def update_daylight(self, data: dict) -> None:
+        """The daylight curve. Which lamps follow it is set per lamp."""
+        updated = replace(
+            self.settings.daylight, **{k: int(data[k]) for k in DAYLIGHT_FIELDS if k in data}
+        )
+        updated.validate()
+        self.settings.daylight = updated
+        self._save_settings()
+        self._daylight_changed.set()
+
+    def _pause_daylight(self, ieee: str, paused: bool) -> None:
+        """Warmth set by hand wins over daylight until the lamp is next switched off."""
+        paused_list = self.state.daylight_paused
+        if paused and ieee not in paused_list and ieee in self.settings.daylight.lights:
+            paused_list.append(ieee)
+        elif not paused and ieee in paused_list:
+            paused_list.remove(ieee)
+        else:
+            return
+        self.store.save_state(self.state)
+        self.notify()
+
+    def _daylight_on(self, ieee: str) -> int | None:
+        """The warmth (mireds) for switching a lamp on, if it follows daylight."""
+        settings = self.settings
+        if (
+            ieee not in settings.daylight.lights
+            or ieee in self.state.daylight_paused
+            or self.behaviour.lamp(ieee).hand_only
+            or not settings.weather.enabled
+        ):
+            return None
+        controller = self.registry.controller(ieee)
+        if not controller.caps.supports_ct:
+            return None
+        mireds = daylight_mireds(
+            self.clock.now(),
+            settings.tz,
+            settings.weather.lat,
+            settings.weather.lon,
+            settings.daylight,
+        )
+        return controller.caps.clamp_mireds(mireds)
+
+    def _daylight_now(self, ieee: str) -> int | None:
+        """The warmth a lit lamp following daylight should have now, or None when it
+        is off or something else steers it (a sunrise, the motion night light)."""
+        memo = self.behaviour.lamp(ieee)
+        if (
+            self.registry.controller(ieee).state.on is not True
+            or memo.owner == "sunrise"
+            or (memo.owner == "motion" and memo.profile == "night")
+        ):
+            return None
+        return self._daylight_on(ieee)
+
+    async def _daylight_loop(self) -> None:
+        """Moves the warmth of lit lamps that follow daylight along the day's curve."""
+        while True:
+            for ieee in list(self.settings.daylight.lights):
+                try:
+                    if self.registry.is_lamp(ieee):
+                        await self._follow_daylight(ieee)
+                except Exception:
+                    LOGGER.exception("Daylight warmth for %s failed", ieee)
+            self._daylight_changed.clear()
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(DAYLIGHT_TICK_S):
+                    await self._daylight_changed.wait()
+
+    async def _follow_daylight(self, ieee: str) -> None:
+        controller = self.registry.controller(ieee)
+        target = self._daylight_now(ieee)
+        if target is None or controller.recently_commanded():
+            return  # a command just sent (e.g. switching on) sets its own warmth
+        mireds = controller.state.mireds
+        if mireds is not None and abs(mireds - target) < DAYLIGHT_STEP_MIREDS:
+            return
+        try:
+            async with asyncio.timeout(REFRESH_TIMEOUT_S), controller.lock:
+                if self._daylight_now(ieee) == target:  # nothing changed while waiting
+                    await controller.set_ct(target)
+        except (LightError, TimeoutError) as exc:
+            LOGGER.info("Daylight warmth for %s failed: %r", ieee, exc)
+            return
+        self.notify()
+
+    def daylight_status(self) -> dict:
+        settings, now = self.settings, self.clock.now()
+        status = {
+            **asdict(settings.daylight),
+            "paused": [i for i in self.state.daylight_paused if i in settings.daylight.lights],
+            "sunrise": None,
+            "sunset": None,
+            "polar": None,
+            "kelvin_now": None,
+        }
+        weather = settings.weather
+        if weather.enabled:
+            sun = sun_times(now.astimezone(settings.tz).date(), weather.lat, weather.lon)
+            mireds = daylight_mireds(now, settings.tz, weather.lat, weather.lon, settings.daylight)
+            status.update(
+                sunrise=sun.sunrise.isoformat() if sun.sunrise else None,
+                sunset=sun.sunset.isoformat() if sun.sunset else None,
+                polar=sun.polar,
+                kelvin_now=mired_to_kelvin(mireds),
+            )
+        return status
 
     # --- remotes -----------------------------------------------------------------------
 
@@ -1180,6 +1336,7 @@ class Service:
         if (place.lat, place.lon) != (previous.lat, previous.lon):
             self.weather, self.weather_fetched, self._weather_failures = None, None, 0
             self._weather_changed.set()
+            self._daylight_changed.set()  # the sun's times are the place's
 
     async def search_places(self, query: str, language: str) -> list[dict]:
         from kotivalo.weather import parse_coordinates, search_places
@@ -1556,10 +1713,11 @@ class Service:
         settings = self.settings
         before = (list(device.members), settings.wakeup.light, deepcopy(settings.motion))
         before_remotes = deepcopy(settings.remotes)
+        before_daylight = list(settings.daylight.lights)
         device.members = members
         if settings.wakeup.light in joining:
             settings.wakeup.light = fid
-        for rule in [*settings.motion, *settings.remotes]:
+        for rule in [*settings.motion, *settings.remotes, settings.daylight]:
             if any(m in rule.lights for m in joining):
                 kept = [x for x in rule.lights if x not in joining]
                 rule.lights = kept if fid in kept else [*kept, fid]
@@ -1567,9 +1725,10 @@ class Service:
             self._save_settings()  # validates: one fixture per bulb, one rule per lamp
         except SettingsError:
             device.members, settings.wakeup.light, settings.motion = before
-            settings.remotes = before_remotes
+            settings.remotes, settings.daylight.lights = before_remotes, before_daylight
             raise
         for m in joining:
+            self._pause_daylight(m, False)
             self.behaviour.lamps.pop(m, None)
             self.state.master.pop(m, None)
             self._live.pop(m, None)
@@ -1757,6 +1916,7 @@ class Service:
             "remotes": self.remote_list(),
             "weather": self.weather_status(),
             "master": self.master_status(),
+            "daylight": self.daylight_status(),
             "sunrise": run.status(now) if run else None,
             "upcoming": [
                 {

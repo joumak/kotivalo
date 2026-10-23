@@ -1,4 +1,4 @@
-import type { Alarm, MasterCommand, MotionRule, Place, Ramp, Snapshot, WeatherPlace } from './types'
+import type { Alarm, DaylightCurve, MasterCommand, MotionRule, Place, Ramp, Snapshot, WeatherPlace } from './types'
 
 const TOKEN_KEY = 'kotivalo-token'
 
@@ -47,12 +47,17 @@ async function request(method: string, path: string, body?: unknown): Promise<Sn
 
 export const api = {
   state: () => request('GET', '/api/state'),
-  lamp: (ieee: string, action: 'on' | 'off' | 'toggle' | 'level' | 'kelvin' | 'auto' | 'hand_only', value?: number) =>
+  lamp: (
+    ieee: string,
+    action: 'on' | 'off' | 'toggle' | 'level' | 'kelvin' | 'auto' | 'hand_only' | 'daylight',
+    value?: number,
+  ) =>
     request('POST', `/api/lights/${ieee}`, { action, value }),
   refreshLamp: (ieee: string) => request('POST', `/api/lights/${ieee}/refresh`, {}),
   wakeup: (change: { light?: string | null; alarms?: Alarm[]; ramp?: Ramp }) =>
     request('PUT', '/api/wakeup', change),
   night: (start: string, end: string) => request('PUT', '/api/night', { start, end }),
+  daylight: (curve: DaylightCurve) => request('PUT', '/api/daylight', curve),
   device: (ieee: string, change: { name?: string; room?: string }) =>
     request('PUT', `/api/devices/${ieee}`, change),
   removeDevice: (ieee: string) => request('DELETE', `/api/devices/${ieee}`),

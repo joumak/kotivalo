@@ -1,4 +1,4 @@
-import { Activity, Hand, X } from 'lucide-react'
+import { Activity, Hand, Sun, X } from 'lucide-react'
 import { useCallback, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
@@ -115,7 +115,53 @@ function ControlPanel({ lamp, snapshot, container, onClose }: ControlPanelProps)
     <div className={container === 'sheet' ? 'px-4 pb-6' : undefined}>
       {heading}
       <LampControls lamp={lamp} />
+      <DaylightMode lamp={lamp} snapshot={snapshot} />
       <MotionMode lamp={lamp} />
+    </div>
+  )
+}
+
+/** Whether the lamp's warmth follows daylight, and what it does now. */
+function DaylightMode({ lamp, snapshot }: { lamp: Lamp; snapshot: Snapshot }) {
+  const t = useT()
+  const actions = useActions()
+  if (!lamp.caps.supports_ct) return null
+  const daylight = snapshot.daylight
+  const following = daylight.lights.includes(lamp.ieee)
+  const paused = following && daylight.paused.includes(lamp.ieee)
+  const id = `daylight-${lamp.ieee}`
+  const help = !following
+    ? t.daylight.followHelp
+    : daylight.kelvin_now === null
+      ? t.daylight.noPlace
+      : lamp.hand_only
+        ? t.daylight.handOnly
+        : paused
+          ? t.daylight.paused
+          : t.daylight.followNow(daylight.kelvin_now)
+  return (
+    <div className="mt-6 flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-2">
+          <Sun aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div>
+            <Label htmlFor={id} className="text-base">
+              {t.daylight.follow}
+            </Label>
+            <p className="mt-0.5 text-sm text-muted-foreground">{help}</p>
+          </div>
+        </div>
+        <Switch
+          id={id}
+          checked={following}
+          onCheckedChange={(on) => actions.lamp(lamp.ieee, 'daylight', on ? 1 : 0)}
+        />
+      </div>
+      {paused && !lamp.hand_only && (
+        <Button variant="outline" className="self-start" onClick={() => void actions.lamp(lamp.ieee, 'daylight', 1)}>
+          {t.daylight.resume}
+        </Button>
+      )}
     </div>
   )
 }

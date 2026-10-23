@@ -211,6 +211,24 @@ export interface Radio {
   heard: number | null // unix seconds: the last frame from any device
 }
 
+export interface DaylightCurve {
+  warm_kelvin: number
+  cool_kelvin: number
+  morning_start: number // minutes from sunrise: starts cooling
+  morning_end: number // ...fully cool
+  evening_start: number // minutes from sunset: starts warming
+  evening_end: number // ...fully warm
+}
+
+export interface Daylight extends DaylightCurve {
+  lights: string[] // lamps whose warmth follows it
+  paused: string[] // ...set by hand since they came on: left alone until switched off
+  sunrise: string | null // today at the weather place; null without a place (or on a polar day)
+  sunset: string | null
+  polar: 'day' | 'night' | null
+  kelvin_now: number | null
+}
+
 export interface Snapshot {
   boot: string // changes when the service restarts
   seq: number // grows with every snapshot of one boot
@@ -225,6 +243,7 @@ export interface Snapshot {
   remotes: Remote[]
   weather: Weather
   master: MasterStatus
+  daylight: Daylight
   sunrise: SunriseRun | null
   upcoming: Upcoming[]
   last_run: RunRecord | null

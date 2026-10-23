@@ -146,9 +146,11 @@ async def test_roles_pass_from_the_bulbs_to_the_fixture(setup):
     service, client, clock = setup
     await client.put(f"/api/motion/{SENSOR}", json={"lights": [SPOT_A], "dark_lux": None})
     await client.put(f"/api/remotes/{REMOTE}", json={"lights": [SPOT_B]})
+    await client.post(f"/api/lights/{SPOT_A}", json={"action": "daylight", "value": 1})
     fid, _ = await make_fixture(client)
     assert service.settings.motion[0].lights == [fid]
     assert service.settings.remotes[0].lights == [fid]
+    assert service.settings.daylight.lights == [fid]
 
     service.events.put_nowait(Motion(SENSOR, True))
     await settle()
@@ -174,8 +176,10 @@ async def test_removing_bulbs_and_fixtures(setup):
     fid, _ = await make_fixture(client)
     assert (await client.put(f"/api/fixtures/{fid}", json={"members": [SPOT_A]})).status == 200
     assert service.registry.lamp_ids() == [SOLO, SPOT_B, fid]  # SPOT_B is a lamp again
+    await client.post(f"/api/lights/{fid}", json={"action": "daylight", "value": 1})
     await client.delete(f"/api/devices/{SPOT_A}")  # its last bulb: the fixture goes too
     assert fid not in service.settings.devices
+    assert service.settings.daylight.lights == []
     assert service.registry.lamp_ids() == [SOLO, SPOT_B]
 
 

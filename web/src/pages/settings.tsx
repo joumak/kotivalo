@@ -6,6 +6,7 @@ import { useActions } from '@/api/actions'
 import { api, getToken, setToken } from '@/api/client'
 import { useLive, useLiveState } from '@/api/live'
 import type { Place } from '@/api/types'
+import { DaylightSettings } from '@/components/daylight-settings'
 import { PageTitle } from '@/components/shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -63,6 +64,7 @@ export function SettingsPage({ panel, onPanel }: SettingsPageProps) {
 
         <NightWindow />
         <WeatherSettings />
+        <Daylight />
         <AccessCode />
         <RadioInfo />
       </div>
@@ -106,6 +108,11 @@ function NightWindow() {
       </div>
     </section>
   )
+}
+
+function Daylight() {
+  const { snapshot } = useLive()
+  return snapshot ? <DaylightSettings snapshot={snapshot} /> : null
 }
 
 /** Where the weather is for: search a town (or type coordinates), tap a result. */

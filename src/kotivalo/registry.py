@@ -241,7 +241,7 @@ class Registry:
             settings.wakeup.light = None
         settings.motion = [r for r in settings.motion if r.sensor != ieee]
         settings.remotes = [b for b in settings.remotes if b.remote != ieee]
-        for rule in [*settings.motion, *settings.remotes]:
+        for rule in [*settings.motion, *settings.remotes, settings.daylight]:
             rule.lights = [x for x in rule.lights if x != ieee]
         self.sync_controllers()
         return removed

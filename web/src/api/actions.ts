@@ -33,6 +33,7 @@ export function useActions() {
       refreshLamp: (ieee: string) => run(api.refreshLamp(ieee)),
       wakeup: (change: Parameters<typeof api.wakeup>[0]) => run(api.wakeup(change)),
       night: (start: string, end: string) => run(api.night(start, end)),
+      daylight: (curve: Parameters<typeof api.daylight>[0]) => run(api.daylight(curve)),
       device: (ieee: string, change: Parameters<typeof api.device>[1]) => run(api.device(ieee, change)),
       removeDevice: (ieee: string) => run(api.removeDevice(ieee)),
       motion: (sensor: string, rule: Parameters<typeof api.motion>[1]) => run(api.motion(sensor, rule)),

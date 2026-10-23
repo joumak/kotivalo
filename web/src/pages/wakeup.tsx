@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useActions } from '@/api/actions'
 import { useLive } from '@/api/live'
 import type { Alarm, Ramp, Snapshot } from '@/api/types'
+import { Field, NumberSelect } from '@/components/fields'
 import { PageTitle } from '@/components/shell'
 import { SunriseBand } from '@/components/sunrise-band'
 import { Button } from '@/components/ui/button'
@@ -373,36 +374,5 @@ function LastAlarm({ snapshot }: { snapshot: Snapshot }) {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      {children}
-    </div>
-  )
-}
 
-interface NumberSelectProps {
-  value: number
-  options: number[]
-  label: (value: number) => string
-  onChange: (value: number) => void
-}
 
-function NumberSelect({ value, options, label, onChange }: NumberSelectProps) {
-  const all = options.includes(value) ? options : [...options, value].sort((a, b) => a - b)
-  return (
-    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
-      <SelectTrigger className="w-full">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {all.map((option) => (
-          <SelectItem key={option} value={String(option)}>
-            {label(option)}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}

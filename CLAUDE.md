@@ -76,6 +76,7 @@ CLI radio commands (`pair`, `light`, `devices`, `form-network`, `xbee-config`, `
 The pure logic has no I/O and is fully unit-tested:
 - `ramp.py`: brightness curve, colour temperature, tick plan
 - `schedule.py`: alarm occurrences, computed in UTC so DST is handled
+- `daylight.py`: sunrise and sunset (NOAA's sunrise equation, for the weather place), and the daylight warmth curve: points in minutes from sunrise/sunset, linear in mireds, the warmer slope winning where they overlap
 
 Everything else:
 - **`sunrise.py`:** runs one sunrise with cancel/resume.
@@ -110,6 +111,11 @@ Everything else:
   - **"on":** restores manual lamps via `last_manual` + `lamp_action(on)`, and hands motion-lit ones back with `lamp_action(auto)`. With no memory, every lamp comes on.
   - **The memory** is kept until the next "off" that finds something lit.
   - **Later** (`{action: off, delay: s}`, 0–3600 s; the UI offers 1 and 5 min): `State.master_off_at`, run by `Service._master_timer`. Any other master action cancels it ("cancel" only that), it survives a restart, and one overdue by over `MASTER_LATE_S` (the service was down) is dropped.
+- **Daylight** (`settings.daylight`: the curve and its `lights`; `lamp_action(ieee, "daylight", 1|0)`, `PUT /api/daylight`):
+  - `Service._daylight_loop` sets lit lamps to the curve every `DAYLIGHT_TICK_S`, once they are `DAYLIGHT_STEP_MIREDS` off: CT without a transition, under the controller's lock, skipping a lamp commanded in the last few seconds. Woken at once by a saved curve, a lamp following, a lamp seen coming on, or a new weather place.
+  - Switching on (`_manual_on`, motion's `_switch_on` by day) uses `_daylight_on` instead of the remembered or profile warmth.
+  - Left alone: a sunrise's lamp, "hand only", the motion night profile, and a lamp whose warmth was set by hand (`State.daylight_paused`, cleared by any off: UI, motion, a report).
+  - Fixtures inherit it like other roles (`update_fixture`, `Registry.remove`).
 - **`weather.py`:** MET Norway Locationforecast (yr.no). `parse_met` and `Forecast.view(now)` are pure. `MetClient` sends a User-Agent and If-Modified-Since, and the service refetches only when `Expires` says, clamped to 10–60 min (MET's terms). `Service._weather_loop` runs it; `serve --fake` uses `fake_forecast` and never touches the network. Place search: Open-Meteo geocoder, or typed coordinates.
 - **`remotes.py`:** pure decoder from remote ZCL frames to actions (on, off, toggle, brighter/dimmer, *_hold, dim_stop, warmer/cooler, arrow_stop). De-duplicates by sequence number (every frame arrives ~4 times through the XStick) and drops STYRBAR's stray "on" after an arrow. `Service._remote_pressed` maps actions to the remote's lamps.
 - **`settings.py`:** versioned `settings.json` (v2: devices, lights, wakeup, night, motion, remotes). A v1 file is migrated on load and kept as `settings.v1.json`. `serve --fake` devices (`FAKE_PREFIX`) are never saved.

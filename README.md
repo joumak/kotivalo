@@ -108,6 +108,24 @@ Set up per sensor under **Laitteet → (sensor) → settings**:
 
 **A sensor that stays silent for 10 minutes** counts as an empty room, for example when its battery runs out. A USB-powered presence sensor (the SNZB-06P) is asked every 3 minutes instead, so a long stay keeps the lights on; it has no battery and must stay plugged in. Use rechargeable batteries (IKEA LADDA): ordinary 1.5 V batteries make the VALLHORN see motion that isn't there.
 
+## Daylight
+
+A lamp can follow daylight: warm around sunrise and sunset, cool by day. Switch it on in the lamp's ⚙ (**Seuraa päivänvaloa**); only lamps with adjustable warmth have it.
+
+**The curve** is set under **Asetukset → Päivänvalo**:
+- **the warm and the daylight warmth** (default 2700 K and 4000 K, the FLOALT's coolest).
+- **Aamu:** when the light starts cooling and when it is fully cool, as minutes from sunrise (default: from sunrise to 2 h after).
+- **Ilta:** when it starts warming and when it is fully warm, as minutes from sunset (default: from 2 h before sunset to sunset).
+- Each slider shows what its point means in clock time today, and the band shows the whole day's colours. A saved change applies at once.
+
+**The sun's times** are calculated for the weather place, so the curve follows the seasons: in Espoo the sun rises at 9.25 and sets at 15.13 in December, 3.54 and 22.51 in June. On a short winter day the morning and evening slopes may overlap, and the light then never reaches full daylight. Without a weather place nothing changes.
+
+**What it changes:** only the warmth, while the lamp is on, in small steps (a CT transition would freeze an IKEA lamp). The brightness stays yours. A lamp switched on (by hand, a remote, motion or the master switch) comes on at the warmth of the moment.
+
+**What it leaves alone:**
+- **Warmth set by hand** (the slider or a remote's arrows) wins until the lamp is switched off. "Jatka nyt" in the lamp's ⚙ resumes at once.
+- **A running sunrise**, **"Vain käsin"**, and **the motion night light**, which keeps its own warmth.
+
 ## Remotes
 
 Choose the lamps a remote controls under **Laitteet → (remote) → settings**. The row shows the last button pressed and the battery level.
@@ -201,6 +219,7 @@ Battery devices are set up while they're awake: right after joining, or after a 
 | Path | What |
 |---|---|
 | `src/kotivalo/ramp.py`, `schedule.py` | pure maths: curve, tick plan, alarm occurrences |
+| `src/kotivalo/daylight.py` | pure maths: sunrise and sunset, the daylight warmth curve |
 | `src/kotivalo/behaviour.py` | pure owner model: motion, manual, sunrise, timers |
 | `src/kotivalo/remotes.py` | pure decoder: remote frames to button actions |
 | `src/kotivalo/sunrise.py`, `scheduler.py` | runs one sunrise; starts and resumes alarms |
@@ -214,8 +233,8 @@ Battery devices are set up while they're awake: right after joining, or after a 
 | `deploy/` | `pi-setup.sh`, `deploy.sh`, systemd unit |
 
 State lives in `/var/lib/kotivalo` on the Pi:
-- `settings.json`: devices, lamps, wake-up, night, motion rules, remotes, weather place, radio
-- `state.json`: skipped alarms, last run, lamp owners and timers
+- `settings.json`: devices, lamps, wake-up, night, motion rules, remotes, weather place, daylight, radio
+- `state.json`: skipped alarms, last run, lamp owners and timers, lamps whose daylight is paused by hand
 - `zigbee.db`: zigpy's device database, including the network key
 
 ## Development

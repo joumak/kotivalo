@@ -27,10 +27,11 @@ class Announce:
 
 @dataclass(frozen=True)
 class Motion:
-    """A motion sensor reported the room occupied or empty."""
+    """A motion sensor reported the room occupied or empty (or answered a poll)."""
 
     ieee: str
     occupied: bool
+    polled: bool = False
 
 
 @dataclass(frozen=True)

@@ -351,3 +351,55 @@ async def test_a_sensor_that_reports_on_its_own_is_set_up(bind, reporting, set_u
     device = SimpleNamespace(ieee="60:83:da:ff:fe:e1:63:7c")
     reports = {zigbee.OCCUPANCY_CLUSTER: {"occupancy": (0, 300, 1)}}
     assert await zigbee._configure(device, [Cluster()], reports, 1) is set_up
+
+
+def test_only_a_sensor_that_always_listens_is_polled():
+    from types import SimpleNamespace
+
+    from zigpy.zdo.types import NodeDescriptor
+
+    from kotivalo.zigbee import listens
+
+    router = NodeDescriptor(logical_type=1, mac_capability_flags=0x8E)  # the SNZB-06P
+    sleepy = NodeDescriptor(logical_type=2, mac_capability_flags=0x80)  # the VALLHORN
+    assert listens(SimpleNamespace(node_desc=router))
+    assert not listens(SimpleNamespace(node_desc=sleepy))
+    assert not listens(SimpleNamespace(node_desc=None))  # not interviewed yet
+
+
+async def test_a_presence_sensor_says_what_it_sees_and_how_it_is_set():
+    from types import SimpleNamespace
+
+    from zigpy.zcl import foundation
+
+    from kotivalo import zigbee
+
+    class Occupancy:
+        def __init__(self, values):
+            self.values = values
+
+        async def read_attributes(self, names):
+            return {n: self.values[n] for n in names if n in self.values}, {}
+
+    class Sonoff:
+        async def read_attributes_raw(self, ids, manufacturer):
+            assert ids == [zigbee.SONOFF_LIGHT] and manufacturer == zigbee.SONOFF_MANUFACTURER
+            ok = foundation.Status.SUCCESS
+            return [[SimpleNamespace(attrid=ids[0], status=ok, value=SimpleNamespace(value=1))]]
+
+    def sensor(*clusters):
+        ids = (zigbee.OCCUPANCY_CLUSTER, zigbee.SONOFF_CLUSTER)
+        endpoint = SimpleNamespace(in_clusters=dict(zip(ids, clusters, strict=False)))
+        return SimpleNamespace(endpoints={0: SimpleNamespace(), 1: endpoint})
+
+    occupancy = Occupancy(
+        {"occupancy": 1, "ultrasonic_o_to_u_delay": 60, "ultrasonic_u_to_o_threshold": 2}
+    )
+    snzb = sensor(occupancy, Sonoff())
+    assert await zigbee.read_occupancy(snzb) is True
+    assert await zigbee.describe_sensor(snzb) == "empty after 60 s, sensitivity 2, light bright"
+    occupancy.values = {"occupancy": 0}
+    assert await zigbee.read_occupancy(snzb) is False
+    assert await zigbee.describe_sensor(sensor(Occupancy({}))) == "no settings"
+    assert await zigbee.read_occupancy(sensor(Occupancy({}))) is None
+    assert await zigbee.read_occupancy(sensor()) is None

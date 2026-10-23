@@ -73,6 +73,7 @@ MAX_NAME_LEN = 40
 POLL_TICK_S = 5
 POLL_INTERVAL_S = 60
 POLL_MAX_S = 600
+SENSOR_POLL_S = 180  # a listening sensor's occupancy: 3 reads within behaviour.STUCK_SENSOR_S
 ANNOUNCE_SETTLE_S = 2
 BEHAVIOUR_TICK_S = 15  # re-check owner timers at least this often
 MOTION_ON_CT_DELAY_S = 0.5  # IKEA ignores colour changes until the lamp is on
@@ -277,6 +278,7 @@ class Service:
         self._spawn(self._master_timer())
         if self.zigbee is not None:
             self._spawn_logged(self._configure_lamps(), "Configuring lamp reporting")
+            self._spawn(self._poll_sensors())
 
     async def stop(self) -> None:
         self._remember_last_known()
@@ -567,10 +569,12 @@ class Service:
                 LOGGER.info("Lamp %s announced itself; reading its state", event.ieee)
                 for lamp in [event.ieee, *self.registry.channels(event.ieee)]:
                     self._spawn_logged(self._refresh_soon(lamp), f"Refreshing {lamp}")
-            case Motion(occupied=occupied):
+            case Motion(occupied=occupied, polled=polled):
                 night = self._night(now)
+                news = self.behaviour.sensor(event.ieee).occupied != occupied
                 actions = self.behaviour.motion(event.ieee, occupied, now, night)
-                self._log_motion(event.ieee, occupied, actions, now, night)
+                if news or actions or not polled:  # a poll that just confirms is not logged
+                    self._log_motion(event.ieee, occupied, actions, now, night)
                 self._run_actions(actions)
                 self._behaviour_saved()
             case Lux(lux=lux):
@@ -761,6 +765,48 @@ class Service:
                 if (controller.reachable, asdict(controller.state)) != before:
                     self._lamp_seen(ieee, was_on)
                     self.notify()
+
+    async def _poll_sensors(self) -> None:
+        """Read the occupancy of sensors that listen all the time (the SNZB-06P). They
+        report only changes, so a long stay is a long silence, which the owner model would
+        take for an empty room (behaviour.STUCK_SENSOR_S). An answer counts as a report;
+        a sensor that stops answering still counts as empty after a while."""
+        described: set[str] = set()
+        while True:
+            try:
+                await self._poll_sensors_once(described)
+            except Exception:
+                LOGGER.exception("Reading the sensors failed")
+            await asyncio.sleep(SENSOR_POLL_S)
+
+    async def _poll_sensors_once(self, described: set[str]) -> None:
+        import zigpy.exceptions
+        import zigpy.types
+
+        from kotivalo.zigbee import describe_sensor, listens, read_occupancy
+
+        failed = (zigpy.exceptions.ZigbeeException, TimeoutError)
+        for ieee, device_settings in list(self.settings.devices.items()):
+            if device_settings.kind != "motion":
+                continue
+            try:
+                device = self.zigbee.get_device(ieee=zigpy.types.EUI64.convert(ieee))
+            except KeyError:
+                continue
+            if not listens(device):
+                continue
+            try:
+                async with asyncio.timeout(REFRESH_TIMEOUT_S):
+                    occupied = await read_occupancy(device)
+            except failed:
+                continue
+            if occupied is not None:
+                self.events.put_nowait(Motion(ieee, occupied, polled=True))
+            if ieee not in described:  # once per start, for the log
+                described.add(ieee)
+                with contextlib.suppress(*failed):
+                    async with asyncio.timeout(REFRESH_TIMEOUT_S):
+                        LOGGER.info("%s: %s", device_settings.name, await describe_sensor(device))
 
     def _set_power_on_policy(self, ieee: str) -> bool:
         """The wake-up lamp keeps its state over a power cut (a night-time cut must not

@@ -197,6 +197,11 @@ def light_endpoint(device: zigpy.device.Device):
 OCCUPANCY_CLUSTER = 0x0406
 ILLUMINANCE_CLUSTER = 0x0400
 POWER_CLUSTER = 0x0001
+# Sonoff's own cluster: the SNZB-06P's light level (0 dim, 1 bright), read with Sonoff's
+# manufacturer code. The sensor updates it only when it detects someone.
+SONOFF_CLUSTER = 0xFC11
+SONOFF_LIGHT = 0x2001
+SONOFF_MANUFACTURER = 0x1286
 
 
 def classify(device: zigpy.device.Device) -> tuple[str, int | None]:
@@ -323,6 +328,56 @@ async def configure_remote(device: zigpy.device.Device) -> bool:
         await _configure(device, battery[:1], REMOTE_REPORTING, SLEEPY_TIMEOUT_S)
     await _log_firmware(device, endpoint)
     return on_off_bound
+
+
+def listens(device: zigpy.device.Device) -> bool:
+    """Its receiver is always on (a mains-powered sensor): it answers a read any time."""
+    node = device.node_desc
+    return node is not None and node.is_receiver_on_when_idle
+
+
+def _in_cluster(device: zigpy.device.Device, cluster_id: int):
+    return next(
+        (
+            ep.in_clusters[cluster_id]
+            for i, ep in device.endpoints.items()
+            if i != 0 and cluster_id in getattr(ep, "in_clusters", {})
+        ),
+        None,
+    )
+
+
+async def read_occupancy(device: zigpy.device.Device) -> bool | None:
+    """Whether a listening sensor sees its room occupied now; None if it didn't say.
+    The caller bounds the wait."""
+    cluster = _in_cluster(device, OCCUPANCY_CLUSTER)
+    if cluster is None:
+        return None
+    found, _ = await cluster.read_attributes(["occupancy"])
+    return bool(int(found["occupancy"]) & 1) if "occupancy" in found else None
+
+
+async def describe_sensor(device: zigpy.device.Device) -> str:
+    """A presence sensor's own settings, for the log: how long it waits before reporting
+    empty, its sensitivity (1 low to 3 high) and, on a Sonoff, the light level it saw."""
+    parts = []
+    occupancy = _in_cluster(device, OCCUPANCY_CLUSTER)
+    if occupancy is not None:
+        found, _ = await occupancy.read_attributes(
+            ["ultrasonic_o_to_u_delay", "ultrasonic_u_to_o_threshold"]
+        )
+        if "ultrasonic_o_to_u_delay" in found:
+            parts.append(f"empty after {found['ultrasonic_o_to_u_delay']} s")
+        if "ultrasonic_u_to_o_threshold" in found:
+            parts.append(f"sensitivity {found['ultrasonic_u_to_o_threshold']}")
+    sonoff = _in_cluster(device, SONOFF_CLUSTER)
+    if sonoff is not None:  # zigpy has no definition for it: a raw read
+        result = await sonoff.read_attributes_raw([SONOFF_LIGHT], manufacturer=SONOFF_MANUFACTURER)
+        records = result[0] if result and isinstance(result[0], list) else []
+        for record in records:
+            if record.attrid == SONOFF_LIGHT and record.status == foundation.Status.SUCCESS:
+                parts.append("light " + ("bright" if record.value.value else "dim"))
+    return ", ".join(parts) or "no settings"
 
 
 async def _log_firmware(device, endpoint) -> None:
@@ -533,6 +588,8 @@ class EventBridge:
             self._put(Seen(ieee))
             if profile == 0 and cluster == ZDO_DEVICE_ANNOUNCE:
                 self._put(Announce(ieee))
+            elif cluster == SONOFF_CLUSTER:  # the light level: logged to learn when it comes
+                LOGGER.info("Sensor %s 0x%04X %s", ieee, cluster, data.hex())
             elif cluster in BUTTON_CLUSTERS and classify(device)[0] == "remote":
                 action = self._buttons.decode(
                     ieee, device.model, src_ep, cluster, bytes(data), time.monotonic()

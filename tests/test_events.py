@@ -203,3 +203,68 @@ async def test_a_known_lamp_is_set_up_once_its_endpoints_are_known(
     service._device_event(kind, device)
     await settle()
     assert setups == ([LAMP] if set_up else [])
+
+
+async def test_a_sensor_that_always_listens_is_read_now_and_then(tmp_path, monkeypatch, caplog):
+    """The SNZB-06P reports only changes, so a long stay is a long silence, which would
+    read as an empty room. Reading it keeps its report fresh; only news is logged."""
+    import logging
+    from datetime import UTC, datetime
+
+    from kotivalo import zigbee
+    from kotivalo.clock import FakeClock
+
+    clock = FakeClock(datetime(2026, 10, 23, 12, 0, tzinfo=UTC))
+    service = Service(Store(tmp_path), fake=True, fake_sensors=2, clock=clock)
+    await service.start()
+    listening = "00:00:00:00:00:00:00:f1"  # f2 is a sleepy one, like the VALLHORN
+    sees = {"occupied": True, "answers": True}
+    reads = []
+
+    async def read_occupancy(device):
+        reads.append(device)
+        if not sees["answers"]:
+            raise TimeoutError
+        return sees["occupied"]
+
+    async def describe(device):
+        return "empty after 60 s"
+
+    class Radio:
+        def get_device(self, ieee):
+            return str(ieee)
+
+    monkeypatch.setattr(zigbee, "listens", lambda device: device == listening)
+    monkeypatch.setattr(zigbee, "read_occupancy", read_occupancy)
+    monkeypatch.setattr(zigbee, "describe_sensor", describe)
+    service.zigbee = Radio()
+    caplog.set_level(logging.INFO, logger="kotivalo.app")
+    name = service.settings.devices[listening].name
+    memo = service.behaviour.sensor(listening)
+    described: set[str] = set()
+
+    async def poll():
+        await service._poll_sensors_once(described)
+        await settle()
+
+    try:
+        await poll()
+        assert reads == [listening]  # the sleepy one isn't asked
+        assert memo.occupied and memo.last_report == clock.now()
+        assert f"{name}: empty after 60 s" in caplog.text  # its settings, once
+        caplog.clear()
+        clock.advance(app_module.SENSOR_POLL_S)
+        await poll()
+        assert memo.last_report == clock.now()  # still there: not taken for empty
+        assert name not in caplog.text  # a poll that just confirms is not news
+        sees["occupied"] = False
+        await poll()
+        assert not memo.occupied and f"{name}: empty" in caplog.text
+        sees["answers"] = False
+        answered = memo.last_report
+        clock.advance(app_module.SENSOR_POLL_S)
+        await poll()
+        assert memo.last_report == answered  # no answer: silence counts as before
+    finally:
+        service.zigbee = None
+        await service.stop()

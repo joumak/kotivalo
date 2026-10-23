@@ -164,6 +164,30 @@ async def test_motion_sensor_reports_become_events(vallhorn):
     ]
 
 
+async def test_a_presence_sensor_tells_bright_from_dim(app):
+    """Recorded from the SNZB-06P: "occupied", then 27 ms later its light reading in
+    Sonoff's cluster; and the answer to a read of it."""
+    from kotivalo.events import Brightness, Motion, Seen
+
+    device = app.add_device(t.EUI64.convert(SENSOR), SENSOR_NWK)
+    ep = device.add_endpoint(1)
+    ep.profile_id = 0x0104
+    for cluster_id in (0x0406, 0xFC11):
+        ep.add_input_cluster(cluster_id)
+    ep.status = zigpy.endpoint.Status.ZDO_INIT
+    device.status = zigpy.device.Status.ENDPOINTS_INIT
+    queue = asyncio.Queue()
+    bridge = EventBridge(queue)
+    bridge.attach_all(app)
+    app.add_listener(bridge)
+    app.packet_received(sensor_packet(0x0406, "18000a00001801", endpoint=1))  # occupied
+    app.packet_received(sensor_packet(0xFC11, "18010a01202001", endpoint=1))  # bright
+    app.packet_received(sensor_packet(0xFC11, "0c86124e010120002000", endpoint=1))  # read: dim
+    app.packet_received(sensor_packet(0xFC11, "18020a02200001", endpoint=1))  # something else
+    events = [e for e in await drain(queue) if not isinstance(e, Seen)]
+    assert events == [Motion(SENSOR, True), Brightness(SENSOR, True), Brightness(SENSOR, False)]
+
+
 def test_illuminance_conversion():
     from kotivalo.zigbee import illuminance_to_lux
 

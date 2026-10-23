@@ -21,7 +21,7 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
   | FLOALT panel WS 30x90, "Eteinen" | `b4:e3:f9:ff:fe:75:1e:58` | Eteinen; RODRET f068 |
   | TRETAKT plugs: Spottijalkalamput, Sonjan työpöytä, Sohvan valot | `08:fd:52:ff:fe:d3:c7:83`, `18:0d:f9:ff:fe:37:d9:98`, `18:0d:f9:ff:fe:c0:dd:b9` | Olohuone; RODRET 2bc4 switches Spottijalkalamput |
   | VALLHORN motion sensor | `8c:65:a3:ff:fe:3d:d1:6d` | dark_lux 30, off after 2 min (the user's settings) |
-  | SONOFF SNZB-06P presence sensor (mmWave), "SNZB-06P 637c" | `60:83:da:ff:fe:e1:63:7c` | new 2026-10-21; Työhuone's motion rule. USB-powered (no battery: it must stay plugged in), a router; occupancy only (no lux: its bright/dim is in Sonoff's 0xFC11). Refuses a reporting setup and reports only changes, so it is polled (`Service._poll_sensors`); empty about 40 s after leaving |
+  | SONOFF SNZB-06P presence sensor (mmWave), "SNZB-06P 637c" | `60:83:da:ff:fe:e1:63:7c` | new 2026-10-21; Työhuone's motion rule. USB-powered (no battery: it must stay plugged in), a router; occupancy plus bright/dim (no lux): Sonoff's 0xFC11/0x2001, measured as it detects someone and reported ~30 ms after "occupied" (`sonoff_bright`, the `Brightness` event). Refuses a reporting setup and reports only changes, so it is polled (`Service._poll_sensors`). Its own settings: empty after 60 s, sensitivity 2 (medium) |
   | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | firmware 1.0.024 |
   | RODRET f066, 2bc4, f068 | `34:8d:13:ff:fe:ff:f0:66`, `08:fd:52:ff:fe:ae:2b:c4`, `34:8d:13:ff:fe:ff:f0:68` | firmware 1.0.57 |
   | TRÅDFRI 5-button remote (E1810) "64b9" | `84:2e:14:ff:fe:41:64:b9` | NYMANE. Updated to firmware 24.4.5 over the Sonoff on 2026-10-21 (22:39–00:31, 1 h 50 min); it failed on the XStick |
@@ -35,7 +35,7 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
 ```sh
 .venv/bin/pytest -q && .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/kotivalo --state-dir var serve --fake --fake-lamps 6 --port 8080   # in-memory devices
-#   also --fake-sensors N, --fake-remotes N, --fake-dimmers N, --fake-plugs N; POST /api/fake/event {type: motion|lux|battery|button, ieee, value}
+#   also --fake-sensors N, --fake-remotes N, --fake-dimmers N, --fake-plugs N; POST /api/fake/event {type: motion|lux|bright|battery|button, ieee, value}
 cd web && npm run dev            # UI with hot reload, /api proxied to :8080 (KOTIVALO_API=... for the Pi)
 cd web && npm run lint && npm test && npm run e2e   # oxlint, Vitest, Playwright (needs a build)
 cd web && npm run screenshots -- <out-dir>          # every layout + panel day/night (needs serve on :8099)
@@ -84,7 +84,7 @@ Everything else:
   - the `Light` protocol
   - `FakeLight`, for tests and `--fake`
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
-- **`behaviour.py`:** the pure owner model (off / manual / motion / sunrise per lamp): motion rules, manual wins, manual off pauses motion until the room has been empty, "let motion control it" (`automatic`), the night window, timers (`tick`, `next_deadline`). Returns actions (`SwitchOn`, `SwitchOff`); `Service._run_actions` performs them. Saved in `state.json`.
+- **`behaviour.py`:** the pure owner model (off / manual / motion / sunrise per lamp): motion rules, manual wins, manual off pauses motion until the room has been empty, "let motion control it" (`automatic`), the night window, timers (`tick`, `next_deadline`). A bright/dim sensor (`SensorMemo.raw_bright` known): any threshold means "only when dim", and by day its lamps wait up to `LIGHT_WAIT_S` for the reading that follows "occupied" (`light_due`; the one it had is from its last detection). Returns actions (`SwitchOn`, `SwitchOff`); `Service._run_actions` performs them. Saved in `state.json`.
 - **Fixtures** (kind "fixture" in `settings.devices`, with `members`):
   - **Controllers:** `Registry.fixtures` holds one `LightController(FixtureLight)` per fixture; it fans each command out to the member bulbs' controllers, concurrently and under each bulb's lock.
   - **Lamp lists:** `Registry.lamp_ids()` (fixtures, and bulbs in none) is what users see. Use it, or `is_lamp`, for anything user-facing; `controllers` (bulbs) is for radio work: polling, configuring, reports.

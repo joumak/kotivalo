@@ -222,13 +222,14 @@ async def post_permit(request: web.Request) -> web.Response:
 
 async def post_fake_event(request: web.Request) -> web.Response:
     """`serve --fake` only: inject a sensor event, for UI development and tests."""
-    from kotivalo.events import Battery, Button, Lux, Motion
+    from kotivalo.events import Battery, Brightness, Button, Lux, Motion
 
     body = await request.json()
     ieee, value = str(body["ieee"]), body["value"]
     make = {
         "motion": lambda: Motion(ieee, bool(value)),
         "lux": lambda: Lux(ieee, float(value)),
+        "bright": lambda: Brightness(ieee, bool(value)),
         "battery": lambda: Battery(ieee, float(value)),
         "button": lambda: Button(ieee, str(value)),
     }

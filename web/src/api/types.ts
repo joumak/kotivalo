@@ -52,7 +52,7 @@ export interface MotionRule {
   sensor: string
   lights: string[]
   enabled: boolean
-  dark_lux: number | null // only when darker than this; null = always
+  dark_lux: number | null // only when darker than this (a bright/dim sensor: only when dim); null = always
   off_after_min: number
   day: Profile
   night: Profile
@@ -65,6 +65,7 @@ export interface Sensor {
   occupied: boolean
   last_report: string | null
   lux: number | null
+  bright: boolean | null // a sensor that only tells bright from dim (the SNZB-06P)
   battery: number | null
   configured: boolean
   rule: MotionRule | null

@@ -7,7 +7,7 @@ import pytest
 
 from kotivalo.app import Service
 from kotivalo.clock import FakeClock
-from kotivalo.events import LightReport, Lux, Motion
+from kotivalo.events import Brightness, LightReport, Lux, Motion
 from kotivalo.settings import Store
 from kotivalo.web import make_web_app
 
@@ -112,6 +112,30 @@ async def test_owners_survive_a_restart(setup, tmp_path):
     service.events.put_nowait(Motion(SENSOR, True))
     await settle(service)
     assert service.store.load_state().behaviour[LAMP]["owner"] == "motion"
+
+
+async def test_a_bright_dim_sensor_waits_for_its_reading(setup, caplog):
+    service, client, clock = setup
+    caplog.set_level("INFO", logger="kotivalo.app")
+    service.events.put_nowait(Brightness(SENSOR, False))  # known as a bright/dim sensor
+    service.events.put_nowait(Motion(SENSOR, True))
+    service.events.put_nowait(Brightness(SENSOR, True))  # measured as it saw someone
+    await settle(service)
+    assert lamp_state(service).on is not True
+    assert "says bright" in caplog.text
+    state = await (await client.get("/api/state")).json()
+    assert state["sensors"][0]["bright"] is True
+
+    service.events.put_nowait(Motion(SENSOR, False))
+    service.events.put_nowait(Brightness(SENSOR, False))  # the answer to a read: dusk
+    service.events.put_nowait(Motion(SENSOR, True))  # and the reading after it is lost
+    await settle(service)
+    assert lamp_state(service).on is not True
+    clock.advance(1)
+    service._behaviour_changed.set()
+    await settle(service)
+    assert lamp_state(service).on is True  # the last reading: dim
+    assert "no light reading" in caplog.text
 
 
 async def test_sensor_and_owner_in_the_snapshot(setup):

@@ -18,7 +18,17 @@ from aiohttp import web
 from kotivalo import systemd
 from kotivalo.behaviour import Behaviour, SwitchOff, SwitchOn, night_now
 from kotivalo.clock import Clock, ntp_synchronized
-from kotivalo.events import Announce, Battery, Button, Event, LightReport, Lux, Motion, Seen
+from kotivalo.events import (
+    Announce,
+    Battery,
+    Brightness,
+    Button,
+    Event,
+    LightReport,
+    Lux,
+    Motion,
+    Seen,
+)
 from kotivalo.light import (
     MAX_LEVEL,
     MIN_LEVEL,
@@ -573,13 +583,25 @@ class Service:
                 night = self._night(now)
                 news = self.behaviour.sensor(event.ieee).occupied != occupied
                 actions = self.behaviour.motion(event.ieee, occupied, now, night)
-                if news or actions or not polled:  # a poll that just confirms is not logged
+                waiting = self.behaviour.sensor(event.ieee).light_due is not None
+                # A poll that just confirms is not logged; one waiting for its light is
+                # logged when the reading comes.
+                if (news or actions or not polled) and not waiting:
                     self._log_motion(event.ieee, occupied, actions, now, night)
                 self._run_actions(actions)
                 self._behaviour_saved()
             case Lux(lux=lux):
                 self.behaviour.lux(event.ieee, lux, now)
                 self.notify()
+            case Brightness(bright=bright):
+                night = self._night(now)
+                waiting = self.behaviour.sensor(event.ieee).light_due is not None
+                actions = self.behaviour.brightness(event.ieee, bright, now, night)
+                LOGGER.info("%s: %s", self._name(event.ieee), "bright" if bright else "dim")
+                if waiting:
+                    self._log_motion(event.ieee, True, actions, now, night)
+                self._run_actions(actions)
+                self._behaviour_saved()
             case Battery(percent=percent) if self._kind(event.ieee) == "remote":
                 self.remote_memo.setdefault(event.ieee, {})["battery"] = percent
                 self.notify()
@@ -605,8 +627,11 @@ class Service:
         device = self.settings.devices.get(ieee)
         return device.kind if device else None
 
+    def _name(self, ieee: str) -> str:
+        return self.settings.devices[ieee].name if ieee in self.settings.devices else ieee
+
     def _log_motion(self, sensor: str, occupied: bool, actions, now: datetime, night: bool) -> None:
-        name = self.settings.devices[sensor].name if sensor in self.settings.devices else sensor
+        name = self._name(sensor)
         rule = self.behaviour.rule_for_sensor(sensor)
         if not occupied or rule is None:
             LOGGER.info(
@@ -709,7 +734,16 @@ class Service:
             with contextlib.suppress(TimeoutError):
                 async with asyncio.timeout(wait):
                     await self._behaviour_changed.wait()
-            actions = self.behaviour.tick(self.clock.now())
+            now = self.clock.now()
+            late = [  # occupied, and the light reading they wait for didn't come
+                ieee
+                for ieee, memo in self.behaviour.sensors.items()
+                if memo.light_due is not None and memo.light_due <= now
+            ]
+            actions = self.behaviour.tick(now)
+            for ieee in late:
+                LOGGER.info("%s: no light reading; deciding with the last one", self._name(ieee))
+                self._log_motion(ieee, True, actions, now, night=False)
             if actions:
                 self._run_actions(actions)
                 self._behaviour_saved()
@@ -970,7 +1004,7 @@ class Service:
         memo = self.remote_memo.setdefault(remote, {})
         memo["last_action"], memo["last_press"] = action, self.clock.now()
         lamps = self._remote_lamps(remote)
-        name = self.settings.devices[remote].name if remote in self.settings.devices else remote
+        name = self._name(remote)
         LOGGER.info("Remote %s: %s, lamps %s", name, action, lamps or "none")
         self.notify()
         if action in ("warmer_hold", "cooler_hold", "arrow_stop"):
@@ -1628,6 +1662,7 @@ class Service:
                     "occupied": memo.occupied,
                     "last_report": memo.last_report.isoformat() if memo.last_report else None,
                     "lux": memo.raw_lux,
+                    "bright": memo.raw_bright,
                     "battery": memo.battery,
                     "configured": device.configured,
                     "rule": asdict(rule) if rule else None,

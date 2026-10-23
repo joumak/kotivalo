@@ -100,12 +100,13 @@ Each command goes to every bulb at once. The fixture counts as on if any of its 
 Set up per sensor under **Laitteet → (sensor) → settings**:
 - **the lamps it switches.** A lamp can have only one sensor.
 - **"only when darker than"**, with the live lux reading. The lux value counts only when the sensor's lamps have been off for a minute, so the lamp's own light doesn't count.
+  - A sensor that only tells bright from dim (the SONOFF SNZB-06P) offers **"Vain hämärässä"** ("only when it is dim") instead. It measures the light as it sees someone come in, and its lamps wait up to a second for that reading.
 - **the off time:** switch off once the room has been empty this long.
 - **day and night brightness and warmth.** The default night light is 5 %, 2200 K.
 
 **Night** is a global setting (Asetukset, default 23–07). It ends early when that morning's sunrise starts.
 
-**A sensor that stays silent for 10 minutes** counts as an empty room, for example when its battery runs out. Use rechargeable batteries (IKEA LADDA): ordinary 1.5 V batteries make the VALLHORN see motion that isn't there.
+**A sensor that stays silent for 10 minutes** counts as an empty room, for example when its battery runs out. A USB-powered presence sensor (the SNZB-06P) is asked every 3 minutes instead, so a long stay keeps the lights on; it has no battery and must stay plugged in. Use rechargeable batteries (IKEA LADDA): ordinary 1.5 V batteries make the VALLHORN see motion that isn't there.
 
 ## Remotes
 
@@ -227,7 +228,7 @@ cd web && npm ci && npm run dev    # UI with hot reload, /api proxied to :8080
 cd web && npm run lint && npm test && npm run e2e
 ```
 
-`serve --fake` has fake lamps, motion sensors (`--fake-sensors`) and remotes (`--fake-remotes`). `POST /api/fake/event` with `{"type": "motion" | "lux" | "battery" | "button", "ieee": ..., "value": ...}` plays a device event.
+`serve --fake` has fake lamps, motion sensors (`--fake-sensors`) and remotes (`--fake-remotes`). `POST /api/fake/event` with `{"type": "motion" | "lux" | "bright" | "battery" | "button", "ieee": ..., "value": ...}` plays a device event.
 
 ## Deploy
 
@@ -284,7 +285,7 @@ Logs: `ssh pi@kotivalo.local journalctl -fu kotivalo`. The journal is kept in RA
 - **Motion doesn't switch a lamp on:** read the lamp's status line.
   - "Käsin päällä" means you switched it on by hand, and motion leaves it alone.
   - "Pois, liike tauolla" means you switched it off by hand, and motion is paused.
-  - "Palauta liikeohjaus" hands the lamp back to the sensor. Otherwise the room may be bright: check the lux value in the sensor's settings.
+  - "Palauta liikeohjaus" hands the lamp back to the sensor. Otherwise the room may be bright: check the lux value (or "valoisaa", bright) in the sensor's settings.
 - **A remote's presses don't show on its row:**
   - It may still be setting up: press its pairing button 4 times near a lamp.
   - On old firmware, update it (see Remotes).

@@ -25,11 +25,10 @@ def make(**rule) -> Behaviour:
         MotionRule(
             sensor=SENSOR,
             lights=[LAMP],
-            dark_lux=30,
             off_after_min=5,
             day=Profile(254, 2700),
             night=Profile(13, 2200),
-            **rule,
+            **{"dark_lux": 30, **rule},
         )
     ]
     return Behaviour(settings)
@@ -64,6 +63,49 @@ def test_lux_measured_while_the_lamp_shines_is_not_trusted():
     b.lux(SENSOR, 300, at(7.5))  # 30 s after switching off: still not settled
     assert b.motion(SENSOR, True, at(7.6), night=False) == [SwitchOn(LAMP, 254, 2700)]
     assert b.sensor(SENSOR).lux is None
+
+
+def test_a_bright_dim_sensor_decides_with_the_reading_that_follows_occupied():
+    b = make()
+    b.brightness(SENSOR, False, at(0), night=False)  # known as a bright/dim sensor: dim
+    assert b.motion(SENSOR, True, at(10), night=False) == []  # its reading follows
+    assert b.next_deadline() == at(10) + timedelta(seconds=1)
+    assert "waiting" in b.why_not_on(LAMP, SENSOR, at(10), night=False)
+    assert b.brightness(SENSOR, True, at(10.001), night=False) == []  # daylight now
+    assert b.lamp(LAMP).owner == "off"
+    assert "says bright" in b.why_not_on(LAMP, SENSOR, at(10.001), night=False)
+    assert b.tick(at(11)) == []
+    b.motion(SENSOR, False, at(12), night=False)
+    b.motion(SENSOR, True, at(60), night=False)
+    assert b.brightness(SENSOR, False, at(60.001), night=False) == [SwitchOn(LAMP, 254, 2700)]
+
+
+def test_a_bright_dim_reading_that_never_comes_leaves_the_last_one_to_decide():
+    b = make()
+    b.brightness(SENSOR, False, at(0), night=False)
+    assert b.motion(SENSOR, True, at(10), night=False) == []
+    assert b.tick(at(10) + timedelta(seconds=1)) == [SwitchOn(LAMP, 254, 2700)]
+    assert b.sensor(SENSOR).light_due is None
+
+
+def test_a_bright_dim_sensor_is_not_waited_for_at_night_or_without_a_threshold():
+    b = make()
+    b.brightness(SENSOR, True, at(0), night=False)
+    assert b.motion(SENSOR, True, at(10), night=True) == [SwitchOn(LAMP, 13, 2200)]
+    b = make(dark_lux=None)
+    b.brightness(SENSOR, True, at(0), night=False)
+    assert b.motion(SENSOR, True, at(10), night=False) == [SwitchOn(LAMP, 254, 2700)]
+
+
+def test_a_bright_reading_while_the_lamp_shines_is_not_trusted():
+    b = make()
+    b.brightness(SENSOR, False, at(0), night=False)
+    b.motion(SENSOR, True, at(10), night=False)
+    b.brightness(SENSOR, False, at(10.001), night=False)  # on by motion
+    b.motion(SENSOR, True, at(11), night=False)  # a poll: no new reading is waited for
+    b.brightness(SENSOR, True, at(12), night=False)  # the lamp's own light
+    assert b.sensor(SENSOR).bright is False
+    assert b.sensor(SENSOR).raw_bright is True
 
 
 def test_the_lamp_goes_off_when_the_room_has_been_empty_long_enough():

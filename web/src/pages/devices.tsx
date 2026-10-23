@@ -251,6 +251,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
     ? [
         sensor.occupied ? t.sensor.occupied : t.sensor.empty,
         sensor.lux !== null ? t.sensor.lux(sensor.lux) : null,
+        sensor.bright !== null ? (sensor.bright ? t.sensor.bright : t.sensor.dim) : null,
         sensor.battery !== null ? t.sensor.battery(sensor.battery) : null,
       ]
     : remote
@@ -411,6 +412,7 @@ const OFF_AFTER = [1, 2, 5, 10, 15, 30]
 const PERCENTS = [5, 10, 20, 30, 50, 75, 100]
 const KELVINS = [2200, 2500, 2700, 3000, 3500, 4000]
 const ALWAYS = 'always'
+const DIM = 'dim'
 
 function defaultRule(sensor: string): MotionRule {
   return {
@@ -444,7 +446,11 @@ function MotionDialog({ sensor, snapshot, onClose }: { sensor: Sensor; snapshot:
         <DialogHeader>
           <DialogTitle>{t.sensor.settings(sensor.name)}</DialogTitle>
           <DialogDescription>
-            {[sensor.occupied ? t.sensor.occupied : t.sensor.empty, sensor.lux !== null ? t.sensor.lux(sensor.lux) : null]
+            {[
+              sensor.occupied ? t.sensor.occupied : t.sensor.empty,
+              sensor.lux !== null ? t.sensor.lux(sensor.lux) : null,
+              sensor.bright !== null ? (sensor.bright ? t.sensor.bright : t.sensor.dim) : null,
+            ]
               .filter(Boolean)
               .join(', ')}
           </DialogDescription>
@@ -482,24 +488,42 @@ function MotionDialog({ sensor, snapshot, onClose }: { sensor: Sensor; snapshot:
           </fieldset>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t.sensor.darkerThan} hint={sensor.lux !== null ? t.sensor.luxNow(t.sensor.lux(sensor.lux)) : undefined}>
-              <Select
-                value={rule.dark_lux === null ? ALWAYS : String(rule.dark_lux)}
-                onValueChange={(v) => change({ dark_lux: v === ALWAYS ? null : Number(v) })}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DARK_LUX.map((lux) => (
-                    <SelectItem key={lux} value={String(lux)}>
-                      {t.sensor.lux(lux)}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={ALWAYS}>{t.sensor.always}</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
+            {sensor.bright !== null ? (
+              // It only tells bright from dim: any threshold means "only when it is dim".
+              <Field label={t.sensor.when} hint={t.sensor.luxNow(sensor.bright ? t.sensor.bright : t.sensor.dim)}>
+                <Select
+                  value={rule.dark_lux === null ? ALWAYS : DIM}
+                  onValueChange={(v) => change({ dark_lux: v === ALWAYS ? null : 30 })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DIM}>{t.sensor.onlyDim}</SelectItem>
+                    <SelectItem value={ALWAYS}>{t.sensor.always}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            ) : (
+              <Field label={t.sensor.darkerThan} hint={sensor.lux !== null ? t.sensor.luxNow(t.sensor.lux(sensor.lux)) : undefined}>
+                <Select
+                  value={rule.dark_lux === null ? ALWAYS : String(rule.dark_lux)}
+                  onValueChange={(v) => change({ dark_lux: v === ALWAYS ? null : Number(v) })}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DARK_LUX.map((lux) => (
+                      <SelectItem key={lux} value={String(lux)}>
+                        {t.sensor.lux(lux)}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={ALWAYS}>{t.sensor.always}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
             <Field label={t.sensor.offAfter}>
               <NumberSelect value={rule.off_after_min} options={OFF_AFTER} label={t.sensor.minutes} onChange={(v) => change({ off_after_min: v })} />
             </Field>

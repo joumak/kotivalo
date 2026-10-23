@@ -24,7 +24,17 @@ from zigpy.zcl.helpers import ReportingConfig
 from zigpy.zdo import types as zdo_types
 from zigpy.zdo.types import Status as ZdoStatus
 
-from kotivalo.events import Announce, Battery, Button, Event, LightReport, Lux, Motion, Seen
+from kotivalo.events import (
+    Announce,
+    Battery,
+    Brightness,
+    Button,
+    Event,
+    LightReport,
+    Lux,
+    Motion,
+    Seen,
+)
 from kotivalo.light import LightCaps, LightError, LightState
 from kotivalo.registry import Discovered
 from kotivalo.remotes import BUTTON_CLUSTERS, Decoder
@@ -516,6 +526,26 @@ async def update_firmware(
         device.ota_in_progress = False
 
 
+def sonoff_bright(data: bytes) -> bool | None:
+    """The SNZB-06P's bright/dim from a frame of Sonoff's cluster: a report (sent just
+    after "occupied") or the answer to a read. None if the frame doesn't carry it."""
+    header, rest = foundation.ZCLHeader.deserialize(data)
+    if not header.frame_control.is_general or header.command_id not in (
+        foundation.GeneralCommand.Report_Attributes,
+        foundation.GeneralCommand.Read_Attributes_rsp,
+    ):
+        return None
+    command, _ = foundation.GENERAL_COMMANDS[header.command_id].schema.deserialize(rest)
+    if header.command_id == foundation.GeneralCommand.Report_Attributes:
+        records = command.attribute_reports
+    else:
+        records = [r for r in command.status_records if r.status == foundation.Status.SUCCESS]
+    for record in records:
+        if record.attrid == SONOFF_LIGHT:
+            return bool(record.value.value)
+    return None
+
+
 def illuminance_to_lux(measured_value: int) -> float:
     """ZCL illuminance is 10000 * log10(lux) + 1; 0 means too dark to measure."""
     return 0.0 if measured_value <= 0 else round(10 ** ((measured_value - 1) / 10000), 1)
@@ -588,8 +618,10 @@ class EventBridge:
             self._put(Seen(ieee))
             if profile == 0 and cluster == ZDO_DEVICE_ANNOUNCE:
                 self._put(Announce(ieee))
-            elif cluster == SONOFF_CLUSTER:  # the light level: logged to learn when it comes
-                LOGGER.info("Sensor %s 0x%04X %s", ieee, cluster, data.hex())
+            elif cluster == SONOFF_CLUSTER:
+                bright = sonoff_bright(bytes(data))
+                if bright is not None:
+                    self._put(Brightness(ieee, bright))
             elif cluster in BUTTON_CLUSTERS and classify(device)[0] == "remote":
                 action = self._buttons.decode(
                     ieee, device.model, src_ep, cluster, bytes(data), time.monotonic()

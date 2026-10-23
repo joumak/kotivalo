@@ -41,6 +41,14 @@ class Lux:
 
 
 @dataclass(frozen=True)
+class Brightness:
+    """A sensor that only tells bright from dim (the SNZB-06P), measured as it detects someone."""
+
+    ieee: str
+    bright: bool
+
+
+@dataclass(frozen=True)
 class Battery:
     ieee: str
     percent: float
@@ -61,4 +69,4 @@ class Button:
     action: str
 
 
-Event = LightReport | Announce | Motion | Lux | Battery | Seen | Button
+Event = LightReport | Announce | Motion | Lux | Brightness | Battery | Seen | Button

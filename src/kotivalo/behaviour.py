@@ -7,7 +7,8 @@ next_deadline().
 Rules (docs/ROADMAP.md and the phase 4 plan):
 - Motion switches on a lamp that is off, if it is dark (or night), with the night
   profile inside the night window and the day profile otherwise. The profile is
-  fixed for that motion period.
+  fixed for that motion period. A sensor that only tells bright from dim measures
+  the light as it detects someone: by day its lamps wait for that reading.
 - A motion lamp switches off `off_after_min` after the room is empty.
 - Manual wins: a lamp switched on from the UI or a remote is never switched off by
   motion. After a manual off, motion is ignored until the room has been empty for
@@ -28,6 +29,7 @@ from kotivalo.settings import MotionRule, NightWindow, Settings
 
 STUCK_SENSOR_S = 600  # no report this long while "occupied" means empty (dead battery, lost frame)
 LUX_SETTLE_S = 60  # lux counts only when the sensor's lamps have been off this long
+LIGHT_WAIT_S = 1  # a bright/dim sensor's reading follows "occupied" (by ~30 ms): wait for it
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,9 @@ class SensorMemo:
     empty_since: datetime | None = None  # when it last reported the room empty
     lux: float | None = None  # last lux measured with its lamps off (trustworthy)
     raw_lux: float | None = None  # last lux measured, whatever the lamps did
+    bright: bool | None = None  # a bright/dim sensor's (SNZB-06P) last reading with its lamps off
+    raw_bright: bool | None = None  # its last reading, whatever the lamps did
+    light_due: datetime | None = None  # just occupied: its lamps wait for its reading until then
     battery: float | None = None  # percent
 
 
@@ -104,14 +109,21 @@ class Behaviour:
     def motion(self, sensor: str, occupied: bool, now: datetime, night: bool) -> list[Action]:
         memo = self.sensor(sensor)
         memo.last_report = now
+        arrived = occupied and not memo.occupied
         if occupied:
             memo.last_motion, memo.empty_since = now, None
         elif memo.occupied or memo.empty_since is None:
             memo.empty_since = now
         memo.occupied = occupied
+        if not occupied:
+            memo.light_due = None
         rule = self.rule_for_sensor(sensor)
         if rule is None:
             return []
+        if arrived and not night and rule.dark_lux is not None and memo.raw_bright is not None:
+            # It measures the light as it detects someone and sends that right after: the
+            # reading it has now is from its last detection, perhaps hours ago.
+            memo.light_due = now + timedelta(seconds=LIGHT_WAIT_S)
         actions: list[Action] = []
         after = timedelta(minutes=rule.off_after_min)
         for ieee in rule.lights:
@@ -123,12 +135,7 @@ class Behaviour:
                     lamp.suppressed, lamp.suppressed_until = True, None  # wait until empty
                     continue
                 lamp.suppressed_until = None
-                if lamp.owner == "off" and (night or self._dark(rule, memo)):
-                    profile = rule.night if night else rule.day
-                    lamp.owner, lamp.off_at = "motion", None
-                    lamp.profile = "night" if night else "day"
-                    actions.append(SwitchOn(ieee, profile.level, profile.kelvin))
-                elif lamp.owner == "motion":
+                if lamp.owner == "motion":
                     lamp.off_at = None
             else:
                 # Counted from when the room became empty: the sensor repeats "empty" every
@@ -137,20 +144,28 @@ class Behaviour:
                     lamp.off_at = memo.empty_since + after
                 if lamp.suppressed:
                     lamp.suppressed, lamp.suppressed_until = False, memo.empty_since + after
+        if occupied and memo.light_due is None:
+            actions += self._light_up(rule, memo, night)
         return actions
 
     def lux(self, sensor: str, lux: float, now: datetime) -> None:
         memo = self.sensor(sensor)
         memo.raw_lux = lux
-        rule = self.rule_for_sensor(sensor)
-        lamps = [self.lamp(i) for i in rule.lights] if rule else []
-        settled = all(
-            lamp.owner == "off"
-            and (lamp.off_since is None or (now - lamp.off_since).total_seconds() >= LUX_SETTLE_S)
-            for lamp in lamps
-        )
-        if settled:  # the lamps' own light would make the room look bright
+        if self._settled(sensor, now):
             memo.lux = lux
+
+    def brightness(self, sensor: str, bright: bool, now: datetime, night: bool) -> list[Action]:
+        """A bright/dim sensor's reading. The one that follows "occupied" decides whether
+        its lamps come on."""
+        memo = self.sensor(sensor)
+        memo.raw_bright = bright
+        if self._settled(sensor, now):
+            memo.bright = bright
+        if memo.light_due is None:
+            return []
+        memo.light_due = None
+        rule = self.rule_for_sensor(sensor)
+        return self._light_up(rule, memo, night) if rule and memo.occupied else []
 
     def battery(self, sensor: str, percent: float) -> None:
         self.sensor(sensor).battery = percent
@@ -262,7 +277,11 @@ class Behaviour:
             )
         if self.motion_paused(ieee, now):
             return "motion is paused after a manual off, until the room has been empty for a while"
+        if memo.light_due is not None:
+            return "waiting for its sensor's light reading"
         if rule and not night and not self._dark(rule, memo):
+            if memo.bright is not None:
+                return "the room is bright (its sensor says bright)"
             return f"the room is bright ({memo.lux} lx >= {rule.dark_lux} lx)"
         return None
 
@@ -274,6 +293,11 @@ class Behaviour:
             stale = memo.last_report and (now - memo.last_report).total_seconds() >= STUCK_SENSOR_S
             if memo.occupied and stale:
                 actions += self.motion(sensor, False, now, night=False)
+            if memo.light_due is not None and memo.light_due <= now:
+                # Its reading never came: decide with the last one. It waits only by day.
+                memo.light_due = None
+                rule = self.rule_for_sensor(sensor)
+                actions += self._light_up(rule, memo, night=False) if rule else []
         for ieee, lamp in self.lamps.items():
             if lamp.hand_only:
                 continue
@@ -291,6 +315,7 @@ class Behaviour:
             for memo in self.sensors.values()
             if memo.occupied and memo.last_report
         ]
+        times += [memo.light_due for memo in self.sensors.values() if memo.light_due]
         return min(times, default=None)
 
     # --- persistence (state.json) ----------------------------------------------------
@@ -312,7 +337,35 @@ class Behaviour:
                 setattr(memo, key, datetime.fromisoformat(value) if value else None)
             self.lamps[ieee] = memo
 
+    def _light_up(self, rule: MotionRule, memo: SensorMemo, night: bool) -> list[Action]:
+        """An occupied room: its lamps that are off come on, if it is dark (or night)."""
+        if not (night or self._dark(rule, memo)):
+            return []
+        profile = rule.night if night else rule.day
+        actions: list[Action] = []
+        for ieee in rule.lights:
+            lamp = self.lamp(ieee)
+            if lamp.owner == "off" and not lamp.hand_only and not lamp.suppressed:
+                lamp.owner, lamp.off_at = "motion", None
+                lamp.profile = "night" if night else "day"
+                actions.append(SwitchOn(ieee, profile.level, profile.kelvin))
+        return actions
+
+    def _settled(self, sensor: str, now: datetime) -> bool:
+        """Its lamps have been off long enough that their own light doesn't fool the sensor."""
+        rule = self.rule_for_sensor(sensor)
+        return all(
+            lamp.owner == "off"
+            and (lamp.off_since is None or (now - lamp.off_since).total_seconds() >= LUX_SETTLE_S)
+            for lamp in ([self.lamp(i) for i in rule.lights] if rule else [])
+        )
+
     def _dark(self, rule: MotionRule, memo: SensorMemo) -> bool:
-        if rule.dark_lux is None or memo.lux is None:
-            return True  # no threshold, or no trustworthy reading yet
+        """For a bright/dim sensor, any threshold means "only when it is dim"."""
+        if rule.dark_lux is None:
+            return True
+        if memo.bright is not None:
+            return not memo.bright
+        if memo.lux is None:
+            return True  # no trustworthy reading yet
         return memo.lux < rule.dark_lux

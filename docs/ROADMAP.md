@@ -213,7 +213,7 @@ So the current parking is as good as it gets. The only open route is newer FLOAL
 - **First, by cable, on one 60x60** (panel 2). Its debug lock is the one thing that could make an over-the-air failure permanent.
 - **If unlocked:** over the air for the other panels. A failed update is fixable by cable: write IKEA's 1.2.217 program back, since the pairing area isn't touched.
 - **If locked:** stop, and drop the over-the-air route.
-- **Probe:** a Raspberry Pi Pico running Raspberry Pi's debugprobe, or the Kotivalo Pi's GPIO with OpenOCD.
+- **Probe (chosen 2026-10-25):** a Raspberry Pi Pico running Raspberry Pi's debugprobe, plugged into the laptop, with OpenOCD there. The panel is off mains anyway, so the Kotivalo Pi isn't involved.
 - **When we resume:** write the step-by-step for the chosen probe, and a script that checks the panel's dump against IKEA's image before anything is written.
 
 ---

@@ -9,6 +9,7 @@ from kotivalo.app import Service
 from kotivalo.clock import FakeClock
 from kotivalo.events import LightReport, Motion
 from kotivalo.light import (
+    GONE_AFTER_FAILURES,
     FakeLight,
     FixtureLight,
     LightCaps,
@@ -57,6 +58,26 @@ async def test_one_silent_bulb_does_not_stop_the_others_but_all_silent_fails():
     fa.fail = True
     with pytest.raises(LightError):
         await light.set_level(120, 0)
+
+
+async def test_a_bulb_that_stopped_answering_no_longer_holds_up_the_others():
+    (a, fa), (b, fb) = bulb(), bulb()
+    fb.fail = True  # unplugged
+    light = FixtureLight(lambda: [a, b])
+    for level in range(100, 100 + GONE_AFTER_FAILURES):
+        await light.set_level(level, 0)
+    await light.set_level(130, 0)
+    assert b.failures == GONE_AFTER_FAILURES  # not tried: no radio timeout to wait for
+    assert fa.commands()[-1] == ("level", 130, 0)
+
+    fb.fail = False
+    await b.refresh()  # plugged back in: it answers a poll
+    await light.set_level(140, 0)
+    assert fb.commands() == [("level", 140, 0)]
+
+    a.failures = b.failures = GONE_AFTER_FAILURES  # with every bulb gone, all are tried
+    await light.set_level(150, 0)
+    assert fa.commands()[-1] == fb.commands()[-1] == ("level", 150, 0)
 
 
 def test_combined_state_and_caps():

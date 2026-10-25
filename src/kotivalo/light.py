@@ -134,6 +134,7 @@ class FakeLight:
 
 
 ECHO_GUARD_S = 5  # reports this soon after our own command may predate it
+GONE_AFTER_FAILURES = 2  # in a row: a fixture stops waiting for that bulb (unplugged)
 
 
 class LightController:
@@ -371,13 +372,16 @@ class FixtureLight:
     """The bulbs of one fixture (a lamp's spots) acting as one lamp: every command goes to
     all of them at once, each through its own controller, so their states, locks and
     echo guards stay right. A bulb that doesn't answer doesn't stop the others; only if
-    none answers does the command fail."""
+    none answers does the command fail. One that has stopped answering (unplugged) is
+    left out until it answers a poll or announces itself again: waiting for its radio
+    timeout would delay every command, and a remote's stop after a held button."""
 
     def __init__(self, members: Callable[[], list[LightController]]):
         self.members = members
 
     async def _all(self, what: str, call: Callable[[LightController], Awaitable]) -> None:
-        members = [m for m in self.members() if m.available]
+        available = [m for m in self.members() if m.available]
+        members = [m for m in available if m.failures < GONE_AFTER_FAILURES] or available
         if not members:
             raise LightError("The fixture has no bulbs")
 

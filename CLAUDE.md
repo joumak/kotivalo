@@ -22,10 +22,13 @@ Working notes for changing this code. `README.md` is the user manual; `docs/ROAD
   | TRETAKT plugs: Spottijalkalamput, Sonjan työpöytä, Sohvan valot | `08:fd:52:ff:fe:d3:c7:83`, `18:0d:f9:ff:fe:37:d9:98`, `18:0d:f9:ff:fe:c0:dd:b9` | Olohuone; RODRET 2bc4 switches Spottijalkalamput |
   | VALLHORN motion sensor | `8c:65:a3:ff:fe:3d:d1:6d` | dark_lux 30, off after 2 min (the user's settings) |
   | SONOFF SNZB-06P presence sensor (mmWave), "SNZB-06P 637c" | `60:83:da:ff:fe:e1:63:7c` | new 2026-10-21; Työhuone's motion rule. USB-powered (no battery: it must stay plugged in), a router; occupancy plus bright/dim (no lux): Sonoff's 0xFC11/0x2001, measured as it detects someone and reported ~30 ms after "occupied" (`sonoff_bright`, the `Brightness` event). Refuses a reporting setup and reports only changes, so it is polled (`Service._poll_sensors`). Its own settings: empty after 60 s, sensitivity 2 (medium). Its bright/dim threshold is fixed (no setting) and too low for the room: it said "bright" on every detection of an overcast afternoon (2026-10-23), so the user's rule is "always" (`dark_lux` null) |
+  | TRÅDFRI Driver 30W, "Keittiön työvalo" | `34:10:f4:ff:fe:d8:d6:9e` | new 2026-10-25; RODRET 2b9a |
+  | SONOFF SNZB-03P motion sensor, "SNZB-03P 0cf3" | `cc:36:bb:ff:fe:02:0c:f3` | Eteinen's motion rule |
   | STYRBAR remote | `cc:86:ec:ff:fe:92:d6:09` | firmware 1.0.024 |
   | RODRET f066, 2bc4, f068 | `34:8d:13:ff:fe:ff:f0:66`, `08:fd:52:ff:fe:ae:2b:c4`, `34:8d:13:ff:fe:ff:f0:68` | firmware 1.0.57 |
   | TRÅDFRI 5-button remote (E1810) "64b9" | `84:2e:14:ff:fe:41:64:b9` | NYMANE. Updated to firmware 24.4.5 over the Sonoff on 2026-10-21 (22:39–00:31, 1 h 50 min); it failed on the XStick |
-  | TRÅDFRI 5-button remote (E1810) "5f6d" | `84:2e:14:ff:fe:fb:5f:6d` | new 2026-10-21, no lamp yet. Firmware 2.3.014: group-only, so its presses aren't heard until it is updated the same way |
+  | TRÅDFRI 5-button remote (E1810) "5f6d" | `84:2e:14:ff:fe:fb:5f:6d` | new 2026-10-21, Eteinen. Firmware 2.3.014: group-only, so its presses aren't heard until it is updated the same way |
+  | RODRET 2b9a | `6c:fd:22:ff:fe:ee:2b:9a` | new 2026-10-25, firmware 1.0.47; Keittiön työvalo |
 - **Service:** systemd unit `kotivalo`, web UI on port 8080.
 - **State:** `/var/lib/kotivalo` (`settings.json`, `state.json`, `zigbee.db`).
 - **Laptop:** dev venv uses Python **3.11.0rc1**, which is not the Pi's 3.13. Code must work on both.
@@ -87,7 +90,7 @@ Everything else:
   - `LightController`, whose lock keeps a CT+level pair from interleaving with other commands
 - **`behaviour.py`:** the pure owner model (off / manual / motion / sunrise per lamp): motion rules, manual wins, manual off pauses motion until the room has been empty, "let motion control it" (`automatic`), the night window, timers (`tick`, `next_deadline`). A bright/dim sensor (`SensorMemo.raw_bright` known): any threshold means "only when dim", and by day its lamps wait up to `LIGHT_WAIT_S` for the reading that follows "occupied" (`light_due`; the one it had is from its last detection). `held_by_light` (the lamp's `motion_bright`) tells the UI when motion leaves a lamp off because the room is bright. Returns actions (`SwitchOn`, `SwitchOff`); `Service._run_actions` performs them. Saved in `state.json`.
 - **Fixtures** (kind "fixture" in `settings.devices`, with `members`):
-  - **Controllers:** `Registry.fixtures` holds one `LightController(FixtureLight)` per fixture; it fans each command out to the member bulbs' controllers, concurrently and under each bulb's lock.
+  - **Controllers:** `Registry.fixtures` holds one `LightController(FixtureLight)` per fixture; it fans each command out to the member bulbs' controllers, concurrently and under each bulb's lock. A bulb that has failed `GONE_AFTER_FAILURES` times in a row (unplugged) is left out until it answers a poll or announces itself: otherwise each command waited out its radio timeout (~8 s), and a remote's stop after a held button came that late (2026-10-25).
   - **Lamp lists:** `Registry.lamp_ids()` (fixtures, and bulbs in none) is what users see. Use it, or `is_lamp`, for anything user-facing; `controllers` (bulbs) is for radio work: polling, configuring, reports.
   - **State:** a bulb's report or poll goes through `_lamp_seen`, which updates its fixture (`Registry.update_fixture`: `combined_state`, `common_caps`).
   - **Membership:** `Service.update_fixture` moves a bulb's roles to its fixture when it joins.

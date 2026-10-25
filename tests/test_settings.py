@@ -31,6 +31,7 @@ def test_round_trip(tmp_path):
     settings.wakeup.alarms[0] = Alarm(enabled=True, time="06:45")
     settings.motion.append(MotionRule(sensor="aa:bb", lights=[PANEL_1]))
     settings.remotes.append(RemoteBinding(remote="cc:dd", lights=[PANEL_1]))
+    settings.remotes.append(RemoteBinding(remote="ee:ff", master=True))
     store.save_settings(settings)
     assert store.load_settings() == settings
 
@@ -109,6 +110,7 @@ def test_fake_devices_are_never_saved(tmp_path):
             [{"sensor": "a", "lights": [PANEL_1]}, {"sensor": "b", "lights": [PANEL_1]}]
         ),
         lambda d: d["motion"].append({"sensor": "a", "night": {"level": 1}}),
+        lambda d: d["remotes"].append({"remote": "a", "lights": [PANEL_1], "master": True}),
     ],
 )
 def test_invalid_settings_are_rejected(change):

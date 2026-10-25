@@ -1150,8 +1150,11 @@ class Service:
 
     # --- remotes -----------------------------------------------------------------------
 
+    def _remote_binding(self, remote: str) -> RemoteBinding | None:
+        return next((b for b in self.settings.remotes if b.remote == remote), None)
+
     def _remote_lamps(self, remote: str) -> list[str]:
-        binding = next((b for b in self.settings.remotes if b.remote == remote), None)
+        binding = self._remote_binding(remote)
         lights = binding.lights if binding else []
         return [ieee for ieee in lights if self.registry.is_lamp(ieee)]
 
@@ -1159,8 +1162,14 @@ class Service:
         """A remote's button: every lamp it controls follows (manual wins)."""
         memo = self.remote_memo.setdefault(remote, {})
         memo["last_action"], memo["last_press"] = action, self.clock.now()
-        lamps = self._remote_lamps(remote)
         name = self._name(remote)
+        binding = self._remote_binding(remote)
+        if binding and binding.master:
+            LOGGER.info("Remote %s: %s, the master switch", name, action)
+            self.notify()
+            self._remote_master(action)
+            return
+        lamps = self._remote_lamps(remote)
         LOGGER.info("Remote %s: %s, lamps %s", name, action, lamps or "none")
         self.notify()
         if action in ("warmer_hold", "cooler_hold", "arrow_stop"):
@@ -1177,6 +1186,14 @@ class Service:
             return
         for ieee in lamps:
             self._spawn_logged(self._remote_action(ieee, action), f"Remote {action} on {ieee}")
+
+    def _remote_master(self, action: str) -> None:
+        """A master switch remote: on and off are "Restore lights" and "All off"; its
+        other buttons do nothing."""
+        if action == "toggle":
+            action = "off" if self.master_status()["any_on"] else "on"
+        if action in ("on", "off"):
+            self._spawn_logged(self.master_switch(action), f"Remote master {action}")
 
     async def _remote_action(self, ieee: str, action: str) -> None:
         controller = self.registry.controller(ieee)
@@ -1366,14 +1383,16 @@ class Service:
         }
 
     def update_remote(self, remote: str, data: dict) -> None:
-        """Which lamps a remote controls."""
+        """Which lamps a remote controls, or that it is a master switch (every lamp)."""
         if self._kind(remote) != "remote":
             raise SettingsError(f"{remote} is not a remote")
-        lights = [str(x) for x in data.get("lights", [])]
+        master = bool(data.get("master", False))
+        lights = [] if master else [str(x) for x in data.get("lights", [])]
         if not_lamps := [ieee for ieee in lights if not self.registry.is_lamp(ieee)]:
             raise SettingsError(f"Not lamps: {', '.join(not_lamps)}")
         others = [b for b in self.settings.remotes if b.remote != remote]
-        self.settings.remotes = [*others, RemoteBinding(remote, list(dict.fromkeys(lights)))]
+        binding = RemoteBinding(remote, list(dict.fromkeys(lights)), master)
+        self.settings.remotes = [*others, binding]
         self._save_settings()
 
     def remove_remote(self, remote: str) -> None:
@@ -1387,6 +1406,7 @@ class Service:
                 continue
             memo = self.remote_memo.get(ieee, {})
             press = memo.get("last_press")
+            binding = self._remote_binding(ieee)
             result.append(
                 {
                     "ieee": ieee,
@@ -1398,9 +1418,8 @@ class Service:
                     "last_action": memo.get("last_action"),
                     "last_press": press.isoformat() if press else None,
                     "firmware": self.firmware.get(ieee),
-                    "lights": next(
-                        (b.lights for b in self.settings.remotes if b.remote == ieee), []
-                    ),
+                    "lights": binding.lights if binding else [],
+                    "master": binding.master if binding else False,
                 }
             )
         return result

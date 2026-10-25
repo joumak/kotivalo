@@ -192,6 +192,10 @@ export const fi: Messages = {
     lastPress: (action, relative) => `Painettu ${relative}: ${action}`,
     notConfigured: 'Ei vielä käytössä: liitä uudelleen painamalla liitospainiketta 4 kertaa valon lähellä.',
     legend: 'Päälle ja pois ohjaavat valoja (viimeksi käsin asetettu kirkkaus ja sävy). Pitämällä himmentää. Nuolet säätävät sävyä.',
+    master: 'Pääkytkin: kaikki valot',
+    masterLegend:
+      'Pois sammuttaa kaikki valot ja muistaa, mitkä paloivat, kuten Kaikki pois. Päälle palauttaa ne, kuten Palauta valot. 5-painikkeisen säätimen keskipainike sammuttaa, jos jokin valo palaa, ja muuten palauttaa. Muut painikkeet eivät tee mitään.',
+    isMaster: 'pääkytkin',
     save: 'Tallenna',
     updateFirmware: 'Päivitä laiteohjelmisto',
     updateHelp:

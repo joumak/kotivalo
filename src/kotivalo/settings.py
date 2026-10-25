@@ -218,6 +218,7 @@ class DaylightSettings:
 class RemoteBinding:
     remote: str = ""
     lights: list[str] = field(default_factory=list)
+    master: bool = False  # its on/off run the master switch (every lamp) instead
 
 
 @dataclass
@@ -284,6 +285,9 @@ class Settings:
             if clash := ruled.intersection(rule.lights):
                 raise SettingsError(f"A lamp can have only one motion rule: {sorted(clash)}")
             ruled.update(rule.lights)
+        for bind in self.remotes:
+            if bind.master and bind.lights:
+                raise SettingsError(f"{bind.remote}: a master switch has no lamps of its own")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:

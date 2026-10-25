@@ -257,6 +257,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
       ]
     : remote
       ? [
+          remote.master ? t.remote.isMaster : null,
           remote.last_action && remote.last_press
             ? t.remote.lastPress(t.remote.actions[remote.last_action], t.time.ago(minutesSince(remote.last_press)))
             : seen,
@@ -280,7 +281,7 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
       ? t.sensor.notConfigured
       : remote && !remote.configured
         ? t.remote.notConfigured
-        : remote && remote.lights.length === 0
+        : remote && !remote.master && remote.lights.length === 0
           ? t.remote.noLamps
           : null
   return (
@@ -354,13 +355,14 @@ function DeviceRow({ device, sensor, remote, onRename, onRemove, onMotion, onRem
   )
 }
 
-/** Which lamps a remote's buttons control. */
+/** Which lamps a remote's buttons control, or that it is a master switch for all of them. */
 function RemoteDialog({ remote, snapshot, onClose }: { remote: Remote; snapshot: Snapshot; onClose: () => void }) {
   const t = useT()
   const actions = useActions()
   const [lights, setLights] = useState<string[]>(remote.lights)
+  const [master, setMaster] = useState(remote.master)
   const save = async () => {
-    if (await actions.remote(remote.ieee, lights)) onClose()
+    if (await actions.remote(remote.ieee, master ? [] : lights, master)) onClose()
   }
   const updating = remote.firmware?.state === 'waiting' || remote.firmware?.state === 'updating'
   const updateFirmware = async () => {
@@ -371,9 +373,15 @@ function RemoteDialog({ remote, snapshot, onClose }: { remote: Remote; snapshot:
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t.remote.settings(remote.name)}</DialogTitle>
-          <DialogDescription>{t.remote.legend}</DialogDescription>
+          <DialogDescription>{master ? t.remote.masterLegend : t.remote.legend}</DialogDescription>
         </DialogHeader>
-        <fieldset className="flex flex-col gap-1">
+        <div className="flex items-center justify-between gap-4 py-1.5">
+          <Label htmlFor="remote-master" className="text-base">
+            {t.remote.master}
+          </Label>
+          <Switch id="remote-master" checked={master} onCheckedChange={setMaster} />
+        </div>
+        <fieldset hidden={master} className="flex flex-col gap-1">
           <legend className="mb-2 text-sm text-muted-foreground">{t.remote.lamps}</legend>
           {snapshot.lights.map((lamp) => {
             const id = `remote-lamp-${lamp.ieee}`

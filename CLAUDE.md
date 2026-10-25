@@ -110,6 +110,7 @@ Everything else:
   - **"off":** saves `{level, kelvin, owner}` of the lit lamps in `state.json` (`State.master`), then sends `lamp_action(off)` to each.
   - **"on":** restores manual lamps via `last_manual` + `lamp_action(on)`, and hands motion-lit ones back with `lamp_action(auto)`. With no memory, every lamp comes on.
   - **The memory** is kept until the next "off" that finds something lit.
+  - **A remote** can be one (`RemoteBinding.master`, then no `lights`): on and off run "on" and "off", toggle picks by `any_on`, other buttons do nothing (`Service._remote_master`).
   - **Later** (`{action: off, delay: s}`, 0–3600 s; the UI offers 1 and 5 min): `State.master_off_at`, run by `Service._master_timer`. Any other master action cancels it ("cancel" only that), it survives a restart, and one overdue by over `MASTER_LATE_S` (the service was down) is dropped.
 - **Daylight** (`settings.daylight`: the curve and its `lights`; `lamp_action(ieee, "daylight", 1|0)`, `PUT /api/daylight`):
   - `Service._daylight_loop` sets lit lamps to the curve every `DAYLIGHT_TICK_S`, once they are `DAYLIGHT_STEP_MIREDS` off: CT without a transition, under the controller's lock, skipping a lamp commanded in the last few seconds. Woken at once by a saved curve, a lamp following, a lamp seen coming on, or a new weather place.

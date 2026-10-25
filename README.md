@@ -95,6 +95,8 @@ Each command goes to every bulb at once. The fixture counts as on if any of its 
 
 **Alarms are not affected:** the next sunrise starts as usual. A sunrise that is running right now stops, like any manual off.
 
+**From a remote:** a remote can be the master switch instead of controlling its own lamps (see Remotes).
+
 ## Motion lighting
 
 Set up per sensor under **Laitteet → (sensor) → settings**:
@@ -139,6 +141,12 @@ Choose the lamps a remote controls under **Laitteet → (remote) → settings**.
 | Hold up / down | dims smoothly until released |
 | Tap up / down (5-button) | ±20 % |
 | Left / right arrows (STYRBAR, 5-button) | warmer / cooler; repeats while held |
+
+**As the master switch:** turn on **Pääkytkin: kaikki valot** in the remote's settings, e.g. for a remote by the front door.
+- **Off** is "Kaikki pois": every lamp off, remembering which were lit.
+- **On** is "Palauta valot".
+- **The 5-button remote's centre button** switches off if anything is lit, otherwise restores.
+- **Its other buttons** do nothing. It has no lamps of its own.
 
 **During a sunrise:** any remote or UI action on the wake-up lamp ends the sunrise and skips that alarm. "On" then means full brightness ("I'm up").
 

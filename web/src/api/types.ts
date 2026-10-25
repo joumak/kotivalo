@@ -97,6 +97,7 @@ export interface Remote {
   last_action: RemoteAction | null
   last_press: string | null // ISO
   lights: string[] // the lamps it controls
+  master: boolean // its on/off run the master switch (every lamp) instead; then no lights
   firmware: FirmwareUpdate | null // an update started since the service started
 }
 

@@ -210,6 +210,21 @@ test('a remote switches the lamps chosen for it', async ({ page, request }) => {
   await expect(page.getByText(/Painettu juuri nyt: Päälle/)).toBeVisible()
 })
 
+test('a remote can be the master switch for every lamp', async ({ page, request }) => {
+  await request.post(`/api/lights/${LAMP}`, { data: { action: 'level', value: 150 } })
+  await open(page, '#/devices')
+  await page.getByRole('button', { name: /^STYRBAR 00e1: valot$/ }).click()
+  await page.getByRole('switch', { name: 'Pääkytkin: kaikki valot' }).click()
+  await expect(page.getByRole('switch', { name: 'Lukuvalo' })).toBeHidden()
+  await page.getByRole('button', { name: 'Tallenna' }).click()
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.getByText(/^pääkytkin, /)).toBeVisible()
+  await request.post('/api/fake/event', { data: { type: 'button', ieee: REMOTE, value: 'off' } })
+  await expect.poll(async () => (await lamp(request)).state.on).toBe(false)
+  await request.post('/api/fake/event', { data: { type: 'button', ieee: REMOTE, value: 'on' } })
+  await expect.poll(async () => (await lamp(request)).state.level).toBe(150)
+})
+
 test('shows the weather once a place is set', async ({ page, request }) => {
   await open(page, '#/settings')
   await page.getByLabel('Paikkakunta tai 60.17, 24.94').fill('60.17, 24.94')

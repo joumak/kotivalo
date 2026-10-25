@@ -199,6 +199,10 @@ export const en = {
     notConfigured: 'Not set up yet: press its pairing button 4 times near a lamp to pair it again.',
     legend:
       'On and off switch the lamps (the last brightness and warmth set by hand). Hold to dim. The arrows change warmth.',
+    master: 'Master switch: all lamps',
+    masterLegend:
+      'Off switches every lamp off and remembers which were lit, like “All off”. On brings them back, like “Restore lights”. The centre button of a 5-button remote switches off if anything is lit, otherwise restores. The other buttons do nothing.',
+    isMaster: 'master switch',
     save: 'Save',
     updateFirmware: 'Update firmware',
     updateHelp:

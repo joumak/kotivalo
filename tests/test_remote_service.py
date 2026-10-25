@@ -133,3 +133,29 @@ async def test_fake_button_event(setup):
     assert (await client.post("/api/fake/event", json=body)).status == 200
     await asyncio.sleep(0.6)
     assert lamp(service).state.on is True
+
+
+async def test_a_master_switch_remote_switches_every_lamp_and_brings_them_back(setup):
+    service, client = setup
+    body = {"lights": [LAMP], "master": True}  # its lamps are dropped: all of them now
+    assert (await client.put(f"/api/remotes/{REMOTE}", json=body)).status == 200
+    assert service.settings.remotes[0].lights == []
+    await client.post(f"/api/lights/{LAMP}", json={"action": "level", "value": 100})
+    await client.post(f"/api/lights/{OTHER}", json={"action": "level", "value": 200})
+    await press(service, "off")
+    assert lamp(service).state.on is False and lamp(service, OTHER).state.on is False
+    assert set(service.state.master) == {LAMP, OTHER}  # remembered, as "All off" does
+
+    await press(service, "brighter_hold")  # only on and off mean something
+    assert lamp(service).state.on is False
+    await press(service, "on")
+    assert lamp(service).state.level == 100 and lamp(service, OTHER).state.level == 200
+    await press(service, "toggle")  # the 5-button remote's centre: anything lit, so off
+    assert lamp(service).state.on is False and lamp(service, OTHER).state.on is False
+    await press(service, "toggle")
+    assert lamp(service).state.on is True and lamp(service, OTHER).state.on is True
+    remote = (await (await client.get("/api/state")).json())["remotes"][0]
+    assert remote["master"] is True and remote["lights"] == []
+
+    assert (await client.put(f"/api/remotes/{REMOTE}", json={"lights": [LAMP]})).status == 200
+    assert service.settings.remotes[0].master is False  # back to its own lamps

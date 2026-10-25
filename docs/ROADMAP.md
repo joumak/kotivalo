@@ -182,13 +182,17 @@ So the current parking is as good as it gets. The only open route is newer FLOAL
 - **Which image:** the 60x60 runs IKEA's `driver-hp` image ("FLOALT panel WS 60x60" is compiled into it); the 30x30 runs `driver-lp`.
   - The patch is for lp, with the floor code at 0x92dc. hp has the identical code at 0x92d0.
   - The 30x90 is in neither image's strings, but it asks for the same OTA image type as the 60x60s (0x4202), so it runs the same image.
-- **The panels can't be told apart over Zigbee** (read 2026-10-25): all report image type 0x4202, firmware 1.2.217, hardware version 1, app version 17, stack 87 and date code 20170331, which is the firmware's build date, not the panel's. Only the radio's IEEE prefix differs: panel 2 has 00:0b:57, Silicon Labs' oldest; panel 1, Vaatehuone and Eteinen have newer ones. A hardware generation shows only on the driver box itself.
-- **Two hardware versions in the home:** panel 1's driver has a mains cord with a standard Euro plug, panel 2's a custom connector. Vaatehuone's is not known yet. The Zigbee module and firmware are the same, so the patch is too, but the LED power stage may behave differently at the lowest duty: test the floor on the panel that gets patched.
+- **The panels can't be told apart over Zigbee** (read 2026-10-25): all report image type 0x4202, firmware 1.2.217, hardware version 1, app version 17, stack 87 and date code 20170331, which is the firmware's build date, not the panel's. Only the radio's IEEE prefix differs (panel 2 has 00:0b:57, the others newer Silicon Labs prefixes), and that doesn't date a panel. A hardware version shows only on the driver box itself.
+- **Two driver versions, one board** (both opened 2026-10-25): panel 1's driver has a mains cord with a standard Euro plug, panel 2's a custom connector. Vaatehuone's is not known yet.
+  - **PWIC034C1000P-EU:** made 2018 (date code 1818-1), two separate mains connectors (in, and loop-through out). Its label calls the output "30 VDC 1.0 A 36 W".
+  - **PWIC034C1000P-03:** made 2021 (2131), one connector block, a UKCA mark. Its label says what both are: constant current 1000 mA, 15–30 V.
+  - **Inside they are the same:** board D-PL-A10-01-A V2.3, the same radio module, and two identical constant-current LED stages, 4000 K and 2200 K, driven by the module's PWM. Only the mains connector, the label and a few parts' suppliers differ. So the patch and the floor's behaviour carry over between panels; still test the floor on the first panel patched.
+  - **The module's six pads to the board** are labelled VCC, GND and its PWM lines; SWD (PF0, PF1) isn't among them. VCC and GND can be taken there, SWDIO and SWCLK need the module's own pinout.
 - **The floor is our choice:** 32 counts (0.05 %) is what zw and trmm used, and both saw stripes and occasional strobing on the FLOALT at the very lowest levels. 320 (0.5 %) would be a gentler first try.
 
 **Two ways to put it on a panel:**
 - **SWD** (zw's way):
-  1. Open the driver box. Solder 4 wires (VCC, PF1 = SWDIO, PF0 = SWCLK, GND) to the module.
+  1. Open the driver box. Solder 4 wires (VCC, PF1 = SWDIO, PF0 = SWCLK, GND) to the module. The mains stays unplugged while they are attached: the probe powers the module at 3.3 V.
   2. Dump the 256 KB flash, and check that its code matches IKEA's 1.2.217 image.
   3. Patch it and write back only the changed page. Writing the dump back undoes it.
   - **Needs a probe,** such as a Pi Pico running debugprobe.

@@ -181,7 +181,8 @@ So the current parking is as good as it gets. The only open route is newer FLOAL
 - **Leave out its other change:** it fixes the Step commands' step size at 8, which matters only for IKEA remotes bound straight to the lamp.
 - **Which image:** the 60x60 runs IKEA's `driver-hp` image ("FLOALT panel WS 60x60" is compiled into it); the 30x30 runs `driver-lp`.
   - The patch is for lp, with the floor code at 0x92dc. hp has the identical code at 0x92d0.
-  - The 30x90 is in neither image's strings. Read its OTA image type (attribute 0x0008) first.
+  - The 30x90 is in neither image's strings, but it asks for the same OTA image type as the 60x60s (0x4202), so it runs the same image.
+- **The panels can't be told apart over Zigbee** (read 2026-10-25): all report image type 0x4202, firmware 1.2.217, hardware version 1, app version 17, stack 87 and date code 20170331, which is the firmware's build date, not the panel's. Only the radio's IEEE prefix differs: panel 2 has 00:0b:57, Silicon Labs' oldest; panel 1, Vaatehuone and Eteinen have newer ones. A hardware generation shows only on the driver box itself.
 - **The floor is our choice:** 32 counts (0.05 %) is what zw and trmm used, and both saw stripes and occasional strobing on the FLOALT at the very lowest levels. 320 (0.5 %) would be a gentler first try.
 
 **Two ways to put it on a panel:**

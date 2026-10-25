@@ -187,12 +187,15 @@ So the current parking is as good as it gets. The only open route is newer FLOAL
   - **PWIC034C1000P-EU:** made 2018 (date code 1818-1), two separate mains connectors (in, and loop-through out). Its label calls the output "30 VDC 1.0 A 36 W".
   - **PWIC034C1000P-03:** made 2021 (2131), one connector block, a UKCA mark. Its label says what both are: constant current 1000 mA, 15–30 V.
   - **Inside they are the same:** board D-PL-A10-01-A V2.3, the same radio module, and two identical constant-current LED stages, 4000 K and 2200 K, driven by the module's PWM. Only the mains connector, the label and a few parts' suppliers differ. So the patch and the floor's behaviour carry over between panels; still test the floor on the first panel patched.
-  - **The module's six pads to the board** are labelled VCC, GND and its PWM lines; SWD (PF0, PF1) isn't among them. VCC and GND can be taken there, SWDIO and SWCLK need the module's own pinout.
+  - **The module's six pads to the board** are labelled VCC, GND and its PWM lines; SWD isn't among them.
+  - **SWD is on the module's free castellated edge,** the long edge opposite those pads (from the original blog's photo, 2026-10-25). Counting from the antenna end: the 4th is SWDIO, the 5th SWCLK, and the last, at the far corner, GND. The blog's board is this driver: CON3, R46, C17/C18, C20 and UL file E350220 are printed the same.
+  - **The blog wired only those three** and ran the panel from mains. We take VCC from the board's VCC pad instead, with mains unplugged.
+  - **Check before trusting the count:** GND has continuity with the board's GND pad. A swapped SWDIO/SWCLK does no harm: the probe just can't connect.
 - **The floor is our choice:** 32 counts (0.05 %) is what zw and trmm used, and both saw stripes and occasional strobing on the FLOALT at the very lowest levels. 320 (0.5 %) would be a gentler first try.
 
 **Two ways to put it on a panel:**
 - **SWD** (zw's way):
-  1. Open the driver box. Solder 4 wires (VCC, PF1 = SWDIO, PF0 = SWCLK, GND) to the module. The mains stays unplugged while they are attached: the probe powers the module at 3.3 V.
+  1. Open the driver box. Solder 4 wires (VCC, PF1 = SWDIO, PF0 = SWCLK, GND), placed as above. The mains stays unplugged while they are attached: the probe powers the module at 3.3 V.
   2. Dump the 256 KB flash, and check that its code matches IKEA's 1.2.217 image.
   3. Patch it and write back only the changed page. Writing the dump back undoes it.
   - **Needs a probe,** such as a Pi Pico running debugprobe.
